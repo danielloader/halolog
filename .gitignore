@@ -1,0 +1,34 @@
+# Shared .gitignore for all go-gen-ecosystem modules.
+# @author Admilson B. F. Cossa
+
+# Binaries and build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+bin/
+dist/
+
+# Test and coverage artifacts
+coverage*
+cover.out
+*.out
+test-output*/
+*.prof
+
+# Logs and local state
+*.log
+*.zip
+*.bak
+
+# Go workspace files (local dev only — never committed)
+go.work
+go.work.sum
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
