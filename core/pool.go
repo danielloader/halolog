@@ -52,11 +52,12 @@ type perPPool struct {
 func (p *perPPool) get() *perPState {
 	s := p.pool.Get().(*perPState)
 	s.entry.StaticFieldCount = 0
-	// Ensure fields slice is reset to buffer capacity ???
-	// s.entry.StaticFields is assumed to be backed by fieldBuf or re-sliced correctly.
-	// Since we don't clobber the capacity in usage (we used [:n]),
-	// we just need to ensuring len is correct?
-	// The usage sets len/cap when writing.
+	// Restore the static-fields slice to its full backing buffer. A prior
+	// dispatch may have resliced it to [:count]; without this, the next borrower
+	// sees a shortened slice and silently drops fields once the write index
+	// reaches that stale length. Reslicing the fixed fieldBuf array allocates
+	// nothing, so the zero-allocation hot path is preserved.
+	s.entry.StaticFields = s.fieldBuf[:]
 	return s
 }
 

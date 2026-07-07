@@ -146,19 +146,18 @@ func (p *EntryPool) GetStats() PoolStats {
 	}
 }
 
-// Close shuts down the pool and releases resources
+// Close shuts down the pool. It marks the pool as shut down so subsequent
+// Acquire/Release calls fall back to the basic path; the underlying sync.Pool
+// needs no manual draining (its entries are reclaimed by the GC).
+//
+// The previous implementation looped on entryPool.Get() waiting for a nil
+// sentinel to stop, but a sync.Pool with a non-nil New func never returns nil,
+// so that loop spun forever (a hang, reachable via Shutdown()).
 func (p *EntryPool) Close() {
 	if p == nil {
 		return
 	}
 	p.shutdown.Store(true)
-	// Drain the pool by getting all items and not returning them
-	for {
-		item := p.entryPool.Get()
-		if item == nil {
-			break
-		}
-	}
 }
 
 // AcquireEntry returns a pooled entry from the global pool, falling back to a

@@ -241,7 +241,7 @@ func (ps *EnhancedPipelineStrategy) Write(clock *clock.CachedClock, level types.
 	}
 
 	// Get current pipeline (atomic read for lock-free fast path)
-	pipeline := ps.currentPipeline.Load()
+	pipeline := unboxPipeline(ps.currentPipeline.Load())
 	if pipeline == nil {
 		// Fallback to simple pipeline
 		pipeline = ps.simplePipeline
@@ -263,11 +263,18 @@ func (ps *EnhancedPipelineStrategy) Write(clock *clock.CachedClock, level types.
 	}
 }
 
-// selectOptimalPipeline chooses the best pipeline based on configuration
+// selectOptimalPipeline chooses the best pipeline based on configuration. It
+// acquires ps.mu; callers already holding the lock must use
+// selectOptimalPipelineLocked instead (see UpdateConfiguration).
 func (ps *EnhancedPipelineStrategy) selectOptimalPipeline() {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	ps.selectOptimalPipelineLocked()
+}
 
+// selectOptimalPipelineLocked performs pipeline selection assuming the caller
+// already holds ps.mu.
+func (ps *EnhancedPipelineStrategy) selectOptimalPipelineLocked() {
 	// Race prevention: safe pipeline selection
 	if race.GlobalRacePrevention != nil {
 		race.GlobalRacePrevention.SafeStrategyAccess(ps.strategyID, "select_pipeline")
@@ -290,8 +297,10 @@ func (ps *EnhancedPipelineStrategy) selectOptimalPipeline() {
 		race.GlobalRacePrevention.SafePipelineExecution(ps.strategyID, "select_pipeline", selectedPipeline)
 	}
 
-	// Atomic update for lock-free reads
-	ps.currentPipeline.Store(selectedPipeline)
+	// Atomic update for lock-free reads. The three pipeline types are distinct
+	// concrete types, so they are boxed in a single wrapper type — an atomic.Value
+	// panics if stored values have inconsistent concrete types.
+	ps.currentPipeline.Store(pipelineBox{selectedPipeline})
 	ps.selectionCount.Add(1)
 
 	// Update atomic state for race detection
@@ -328,9 +337,22 @@ func (ps *EnhancedPipelineStrategy) recordMetrics(duration time.Duration, fieldC
 	GlobalMetricsCollector.RecordPipelineExecution(pipelineName, metrics, duration)
 }
 
+// pipelineBox wraps the selected pipeline so the distinct concrete pipeline
+// types (*DirectPipeline, *SimplePipeline, *FullPipeline) can share a single
+// atomic.Value, which requires one consistent concrete type.
+type pipelineBox struct{ p any }
+
+// unboxPipeline returns the pipeline stored in an atomic.Value (nil if unset).
+func unboxPipeline(v any) any {
+	if b, ok := v.(pipelineBox); ok {
+		return b.p
+	}
+	return nil
+}
+
 // getCurrentPipelineName returns the name of the current pipeline
 func (ps *EnhancedPipelineStrategy) getCurrentPipelineName() string {
-	pipeline := ps.currentPipeline.Load()
+	pipeline := unboxPipeline(ps.currentPipeline.Load())
 
 	switch pipeline.(type) {
 	case *DirectPipeline:
@@ -368,8 +390,9 @@ func (ps *EnhancedPipelineStrategy) UpdateConfiguration(config *PipelineConfig) 
 	// Reconfigure pipelines with race prevention
 	ps.reconfigurePipelines()
 
-	// Reselect optimal pipeline
-	ps.selectOptimalPipeline()
+	// Reselect optimal pipeline (we already hold ps.mu, so use the locked variant
+	// to avoid re-acquiring the non-reentrant mutex and deadlocking).
+	ps.selectOptimalPipelineLocked()
 
 	// Update atomic state for race detection
 	ps.atomicState.Add(1)
