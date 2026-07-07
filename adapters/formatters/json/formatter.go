@@ -53,7 +53,17 @@ func init() {
 			smallInts[i] = string([]byte{byte('0' + i/10), byte('0' + i%10)})
 		}
 	}
+
+	// A byte can be written into a JSON string verbatim unless it is a control
+	// character (< 0x20), a double quote, or a backslash.
+	for c := 0; c < 256; c++ {
+		jsonNoEscape[c] = c >= 0x20 && c != '"' && c != '\\'
+	}
 }
+
+// jsonNoEscape[c] reports whether byte c needs no escaping in a JSON string.
+// A single indexed load replaces three comparisons per byte on the hot path.
+var jsonNoEscape [256]bool
 
 var smallInts [smallIntCacheSize]string
 
@@ -277,40 +287,18 @@ func appendAny(dst []byte, v interface{}) []byte {
 	}
 }
 
-// FIXED: Fast JSON string with escaping - high-performance for common cases
+// appendJSONString appends s to dst as a JSON string body (no surrounding
+// quotes), escaping only where required. The common case — a string with no
+// control characters, quotes or backslashes — is a single table-driven scan
+// followed by one bulk append, and allocates nothing.
 //
 //go:inline
 func appendJSONString(dst []byte, s string) []byte {
-	// High-performance path: common case - no special characters
-	if len(s) > 0 {
-		// Check first and last characters quickly
-		first := s[0]
-		last := s[len(s)-1]
-
-		// Fast path for common safe strings (alphanumeric, space, punctuation)
-		if (first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || (first >= '0' && first <= '9') {
-			if (last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') || (last >= '0' && last <= '9') || last == '!' || last == '?' || last == '.' {
-				// Quick scan for common escape characters
-				for i := 0; i < len(s); i++ {
-					c := s[i]
-					if c < 0x20 || c == '"' || c == '\\' {
-						return appendJSONEscaped(dst, s, i)
-					}
-				}
-				// No escaping needed - high-performance path
-				return append(dst, s...)
-			}
-		}
-	}
-
-	// General case: check all characters
 	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c < 0x20 || c == '"' || c == '\\' {
+		if !jsonNoEscape[s[i]] {
 			return appendJSONEscaped(dst, s, i)
 		}
 	}
-	// No escaping needed
 	return append(dst, s...)
 }
 
