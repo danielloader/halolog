@@ -105,8 +105,19 @@ func (fb *FieldBuffer) FromMap(m map[string]interface{}) {
 
 	fb.keys = fb.keys[:0]
 	fb.values = fb.values[:0]
+	// Rebuild the key->index map so Get works after FromMap. It was previously
+	// left stale, so every Get returned (nil, false) even though Size/ToMap
+	// (which read keys/values directly) were correct.
+	if fb.keyMap == nil {
+		fb.keyMap = make(map[string]int, len(m))
+	} else {
+		for k := range fb.keyMap {
+			delete(fb.keyMap, k)
+		}
+	}
 
 	for k, v := range m {
+		fb.keyMap[k] = len(fb.keys)
 		fb.keys = append(fb.keys, k)
 		fb.values = append(fb.values, formatValue(v))
 	}

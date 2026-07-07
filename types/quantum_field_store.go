@@ -35,6 +35,13 @@ type EnhancedQuantumFieldStore struct {
 
 	// Lock-free fast path for common operations
 	fastPath atomic.Bool // Indicates if fast path is available
+
+	// Fallback field-ID registry used when no dictionary is configured. It
+	// assigns small, dense, incremental IDs so the chunked backing store never
+	// has to grow unboundedly (a hash-based ID could be ~4 billion, which spun
+	// the chunk-growth loop forever).
+	fallbackMu  sync.Mutex
+	fallbackIDs map[string]int
 }
 
 // QuantumFieldStore is the legacy field store kept for backward compatibility.
@@ -242,7 +249,19 @@ func (eqfs *EnhancedQuantumFieldStore) setFastPath(key, value string) bool {
 	if chunkIdx < len(eqfs.keys) && localIdx < len(eqfs.keys[chunkIdx]) {
 		eqfs.keys[chunkIdx][localIdx] = key
 		eqfs.values[chunkIdx][localIdx] = value
-		atomic.AddUint64(&eqfs.bitmasks[chunkIdx], 1<<uint(localIdx))
+		// Set the presence bit with an atomic OR. The previous code used
+		// atomic.Add, which corrupts the mask when a field is re-set (it adds the
+		// bit value again, flipping to the wrong bit and hiding the field).
+		bit := uint64(1) << uint(localIdx)
+		for {
+			old := atomic.LoadUint64(&eqfs.bitmasks[chunkIdx])
+			if old&bit != 0 {
+				break // already set
+			}
+			if atomic.CompareAndSwapUint64(&eqfs.bitmasks[chunkIdx], old, old|bit) {
+				break
+			}
+		}
 		return true
 	}
 
@@ -444,11 +463,23 @@ func (eqfs *EnhancedQuantumFieldStore) Size() int {
 
 // Helper methods for field ID management (integrated with FieldDictionary)
 func (eqfs *EnhancedQuantumFieldStore) getOrCreateFieldID(key string) int {
-	if eqfs.dictionary == nil {
-		// Fallback to hash-based field ID generation when dictionary is not available
-		return int(hashString(key))
+	if eqfs.dictionary != nil {
+		return eqfs.dictionary.GetOrRegisterFieldID(key)
 	}
-	return eqfs.dictionary.GetOrRegisterFieldID(key)
+	// No dictionary: assign small, dense, incremental IDs. Using hashString here
+	// previously produced IDs up to ~4 billion, so setSlowPath's chunk-growth
+	// loop tried to allocate billions of chunks and never returned.
+	eqfs.fallbackMu.Lock()
+	defer eqfs.fallbackMu.Unlock()
+	if eqfs.fallbackIDs == nil {
+		eqfs.fallbackIDs = make(map[string]int)
+	}
+	if id, ok := eqfs.fallbackIDs[key]; ok {
+		return id
+	}
+	id := len(eqfs.fallbackIDs)
+	eqfs.fallbackIDs[key] = id
+	return id
 }
 
 func (eqfs *EnhancedQuantumFieldStore) getFieldID(key string) (int, bool) {
