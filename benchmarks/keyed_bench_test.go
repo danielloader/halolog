@@ -64,6 +64,36 @@ func BenchmarkKeyed_TenFields(b *testing.B) {
 	})
 }
 
+// BenchmarkKeyIsolation isolates ONLY the key mechanism: both variants use the
+// typed builder and identical string values, differing solely in how the key is
+// emitted — WithString escapes the key inline; Str copies a pre-escaped fragment.
+func BenchmarkKeyIsolation(b *testing.B) {
+	b.Run("StringKey", func(b *testing.B) {
+		l := newKeyedBenchLogger()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			fb := l.Typed().WithString(keyNames[0], "value")
+			for j := 1; j < 10; j++ {
+				fb = fb.WithString(keyNames[j], "value")
+			}
+			fb.Info("msg")
+		}
+	})
+	b.Run("PreDeclaredKey", func(b *testing.B) {
+		l := newKeyedBenchLogger()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			fb := l.Typed().Str(predeclaredKeys[0], "value")
+			for j := 1; j < 10; j++ {
+				fb = fb.Str(predeclaredKeys[j], "value")
+			}
+			fb.Info("msg")
+		}
+	})
+}
+
 // BenchmarkKeyed_TwentyFields is the same at 20 fields.
 func BenchmarkKeyed_TwentyFields(b *testing.B) {
 	b.Run("WithField", func(b *testing.B) {
