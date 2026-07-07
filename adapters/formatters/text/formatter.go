@@ -21,6 +21,7 @@ package text
 
 import (
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -39,33 +40,64 @@ var (
 	// Pre-computed small integers (0-999) to avoid runtime strconv
 	smallInts [maxIntCache]string
 
-	// Global "Wall Clock" - Updated by background ticker
-	// We use an atomic pointer to a byte array to avoid locks/contention
+	// Global "Wall Clock" - Updated by a background ticker.
+	// We use an atomic pointer to a byte array to avoid locks/contention on the
+	// zero-allocation hot path (Format only does an atomic load + append).
 	globalTimeBytes atomic.Pointer[[]byte]
+
+	// clockOnce ensures the wall-clock ticker goroutine is started at most once,
+	// lazily, on first text-formatter construction — never at package init, so
+	// importing this package (e.g. transitively) does not spawn a daemon
+	// goroutine for a formatter that is never used.
+	clockOnce sync.Once
+	// clockStop signals the wall-clock goroutine to exit (stoppable daemon).
+	clockStop = make(chan struct{})
+	// clockStopped guards StopClock against a double close.
+	clockStopped atomic.Bool
 )
 
 func init() {
-	// 1. Initialize Integer Cache
+	// Initialize the integer cache and seed the wall clock deterministically so
+	// the very first Format call (before the ticker has ticked) still emits a
+	// valid timestamp and never nil-dereferences globalTimeBytes. This is pure
+	// CPU work with no goroutines — safe to do at package init.
 	for i := 0; i < maxIntCache; i++ {
 		smallInts[i] = strconv.Itoa(i)
 	}
-
-	// 2. Initialize Wall Clock immediately so first log isn't empty
 	updateTimeCache(time.Now())
+}
 
-	// 3. Start Background Time Ticker
-	// NOTE: In a perfect library, this would be explicitly started/stopped.
-	// For high-perf internal logging, a daemon goroutine is acceptable.
-	go func() {
-		// 1s resolution is standard for text logs.
-		// Use time.Sleep instead of Ticker to allow easier GC if needed.
-		for {
-			now := time.Now()
-			// Align to the next second boundary for cleaner logs
-			time.Sleep(time.Until(now.Truncate(time.Second).Add(time.Second)))
-			updateTimeCache(time.Now())
-		}
-	}()
+// startClock lazily launches the stoppable wall-clock ticker. It is invoked on
+// first text-formatter construction (via NewTextFormatter) rather than at
+// package init, and runs at most once for the process lifetime.
+func startClock() {
+	clockOnce.Do(func() {
+		go func() {
+			for {
+				now := time.Now()
+				// Align to the next second boundary for cleaner logs.
+				timer := time.NewTimer(time.Until(now.Truncate(time.Second).Add(time.Second)))
+				select {
+				case <-timer.C:
+					updateTimeCache(time.Now())
+				case <-clockStop:
+					timer.Stop()
+					return
+				}
+			}
+		}()
+	})
+}
+
+// StopClock tears down the background wall-clock ticker goroutine started by the
+// text formatter. It is safe to call multiple times and from multiple
+// goroutines. After StopClock, the cached timestamp stops advancing; construct
+// a new formatter to restart it is NOT supported (the once has fired) — StopClock
+// is intended for clean process shutdown / test teardown only.
+func StopClock() {
+	if clockStopped.CompareAndSwap(false, true) {
+		close(clockStop)
+	}
 }
 
 func updateTimeCache(t time.Time) {
@@ -87,8 +119,10 @@ type Formatter struct {
 	_ [64]byte
 }
 
-// NewTextFormatter creates a new text formatter.
+// NewTextFormatter creates a new text formatter and lazily starts the shared,
+// stoppable wall-clock ticker on first use (see startClock / StopClock).
 func NewTextFormatter() *Formatter {
+	startClock()
 	return &Formatter{}
 }
 

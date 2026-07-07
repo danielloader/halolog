@@ -171,9 +171,10 @@ func TestBackgroundTicker_Coverage(t *testing.T) {
 		t.Skip("Skipping ticker coverage in short mode")
 	}
 
-	// The init() function started the ticker.
+	// Constructing a formatter lazily starts the stoppable wall-clock ticker.
 	// We sleep slightly longer than 1 second to ensure the ticker fires
-	// and the code inside the 'range ticker.C' executes at least once.
+	// and the update path executes at least once.
+	_ = NewTextFormatter()
 	time.Sleep(1100 * time.Millisecond)
 
 	// While we can't easily assert the internal state changed without exposing it,
