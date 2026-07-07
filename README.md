@@ -65,10 +65,9 @@ HaloLog offers two ways to attach fields; both are correct and both are
 zero-allocation. Choose based on how hot the path is.
 
 **String keys (ergonomic — the default).** `WithField`/`WithString` take a plain
-string key. The JSON formatter escapes each distinct key once and caches the
-pre-rendered `,"key":` fragment, so repeated calls with the same key avoid
-re-escaping (one lock-free lookup per field thereafter). Use this everywhere you
-value convenience.
+string key, escaped inline by the JSON formatter. For the short keys typical of
+logging this is already fast and allocation-free. Use it everywhere you value
+convenience.
 
 ```go
 logger.WithField("user_id", 12345).WithField("action", "login").Info("login")

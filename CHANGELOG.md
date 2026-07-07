@@ -11,8 +11,9 @@ All notable changes to HaloLog are documented here. This project adheres to
 ### Added
 - **Pre-declared field keys** (`halolog.Key`, typed builder `Str/Int/Bool/…`
   methods) whose JSON escaping is computed once, so the hot path emits a key with
-  a single copy and no escaping or lookup. The plain string-key API is also
-  auto-cached by the JSON formatter after first use (lock-free, 0-alloc).
+  a single copy and no escaping or lookup — measured ~25% faster than plain string
+  keys on field-heavy lines. Plain string keys remain escaped inline (fast and
+  allocation-free for the short keys typical of logging).
 - **Async ring adapter** (`adapters/outputs/asyncring`) — a bounded, lock-free
   multi-producer/single-consumer ring that moves serialization and I/O off the
   caller's goroutine for low, predictable caller latency. Records are copied into

@@ -3,8 +3,6 @@
 package json
 
 import (
-	"strconv"
-	"sync"
 	"testing"
 
 	"github.com/go-gen-ecosystem/halolog/types"
@@ -52,10 +50,9 @@ func TestKeyedFieldMatchesStringField(t *testing.T) {
 	}
 }
 
-// TestStringKeyCacheIsCorrectAndStable exercises the transparent auto-cache: the
-// same string key formatted repeatedly must always render identically (first call
-// escapes+caches, later calls hit the cache).
-func TestStringKeyCacheIsCorrectAndStable(t *testing.T) {
+// TestStringKeyRendersCorrectlyAndStably verifies plain string keys (escaped
+// inline) render identically across repeated calls.
+func TestStringKeyRendersCorrectlyAndStably(t *testing.T) {
 	f := NewJsonFormatter()
 	entry := &types.LogEntry{
 		Level: types.InfoLevel, Message: "m", TimestampUnix: 1_700_000_000_000_000_000,
@@ -89,43 +86,13 @@ func TestZeroAllocKeyPaths(t *testing.T) {
 		StaticFieldCount: 1,
 	}
 	dst := make([]byte, 0, 256)
-	_ = f.Format(strKey, dst) // warm the cache
 
 	if a := testing.AllocsPerRun(1000, func() { _ = f.Format(keyed, dst[:0]) }); a != 0 {
 		t.Fatalf("pre-declared key path: %.2f allocs/op, want 0", a)
 	}
 	if a := testing.AllocsPerRun(1000, func() { _ = f.Format(strKey, dst[:0]) }); a != 0 {
-		t.Fatalf("cached string-key path: %.2f allocs/op, want 0", a)
+		t.Fatalf("inline-escaped string-key path: %.2f allocs/op, want 0", a)
 	}
-}
-
-// TestKeyFragmentCacheConcurrent hammers the copy-on-write cache from many
-// goroutines with overlapping and distinct keys; run with -race to prove the
-// atomic-load reads and copy-on-write inserts are data-race free and that every
-// key resolves to the correct fragment.
-func TestKeyFragmentCacheConcurrent(t *testing.T) {
-	const goroutines = 32
-	keys := make([]string, 200)
-	for i := range keys {
-		keys[i] = "field_" + strconv.Itoa(i)
-	}
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
-	for g := 0; g < goroutines; g++ {
-		go func(seed int) {
-			defer wg.Done()
-			for i := 0; i < len(keys); i++ {
-				k := keys[(i+seed)%len(keys)]
-				got := string(cachedKeyFragment(k))
-				want := `,"` + k + `":`
-				if got != want {
-					t.Errorf("cachedKeyFragment(%q) = %q, want %q", k, got, want)
-					return
-				}
-			}
-		}(g)
-	}
-	wg.Wait()
 }
 
 func contains(s, sub string) bool {

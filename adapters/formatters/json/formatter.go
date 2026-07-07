@@ -21,7 +21,6 @@ package json
 import (
 	"fmt"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -60,72 +59,21 @@ func init() {
 	for c := 0; c < 256; c++ {
 		jsonNoEscape[c] = c >= 0x20 && c != '"' && c != '\\'
 	}
-
-	empty := map[string][]byte{}
-	keyFragCache.Store(&empty)
 }
 
 // jsonNoEscape[c] reports whether byte c needs no escaping in a JSON string.
 // A single indexed load replaces three comparisons per byte on the hot path.
 var jsonNoEscape [256]bool
 
-// maxCachedKeyFragments bounds the transparent key-fragment cache so that a
-// workload generating unbounded distinct keys cannot grow it without limit;
-// beyond this size, keys are escaped per call instead of cached.
-const maxCachedKeyFragments = 4096
-
-// keyFragCache maps a raw field key to its pre-escaped `,"key":` fragment. It is
-// read on the hot path with a lock-free atomic load and updated copy-on-write, so
-// warm reads never take a lock and never allocate. keyFragMu serializes the rare
-// copy-on-write inserts.
-var (
-	keyFragCache atomic.Pointer[map[string][]byte]
-	keyFragMu    sync.Mutex
-)
-
 // KeyFragment returns the pre-escaped JSON member prefix for name — the bytes
-// `,"<escaped-name>":`. Callers (e.g. the root Key constructor) cache the result
-// on an immutable FieldKey so the hot path can emit the key with a single copy.
+// `,"<escaped-name>":`. The root Key constructor caches the result on an
+// immutable FieldKey so the hot path can emit a pre-declared key with a single
+// copy and no lookup.
 func KeyFragment(name string) []byte {
 	buf := make([]byte, 0, len(name)+4)
 	buf = append(buf, ',', '"')
 	buf = appendJSONString(buf, name)
 	return append(buf, '"', ':')
-}
-
-// cachedKeyFragment returns key's pre-escaped fragment from the shared cache,
-// computing and inserting it on first use. The returned slice is immutable and
-// safe to append to a destination buffer concurrently.
-//
-//go:inline
-func cachedKeyFragment(key string) []byte {
-	m := keyFragCache.Load()
-	if frag, ok := (*m)[key]; ok {
-		return frag
-	}
-	return insertKeyFragment(key)
-}
-
-//go:noinline
-func insertKeyFragment(key string) []byte {
-	keyFragMu.Lock()
-	defer keyFragMu.Unlock()
-
-	m := keyFragCache.Load()
-	if frag, ok := (*m)[key]; ok { // re-check under lock
-		return frag
-	}
-	frag := KeyFragment(key)
-	if len(*m) >= maxCachedKeyFragments {
-		return frag // cache is full: serve without caching
-	}
-	next := make(map[string][]byte, len(*m)+1)
-	for k, v := range *m {
-		next[k] = v
-	}
-	next[key] = frag
-	keyFragCache.Store(&next)
-	return frag
 }
 
 var smallInts [smallIntCacheSize]string
@@ -267,13 +215,15 @@ func entryUnixSeconds(entry *types.LogEntry) int64 {
 // interface-based WithField API) it falls back to the legacy Value interface{}.
 func appendField(dst []byte, field *types.TypedFieldData) []byte {
 	// Emit the `,"key":` prefix. A pre-declared FieldKey carries its own
-	// pre-escaped fragment (no lookup); otherwise the shared copy-on-write cache
-	// serves it (escaping once per distinct key). Both reduce to a single copy on
-	// the warm path, replacing the per-call escape of every key byte.
+	// pre-escaped fragment and is emitted with a single copy (no lookup). A plain
+	// string key is escaped inline: for the short keys typical of logging this is
+	// cheaper than a per-field map lookup would be.
 	if kd := field.KeyDesc; kd != nil && len(kd.JSONFragment) > 0 {
 		dst = append(dst, kd.JSONFragment...)
 	} else {
-		dst = append(dst, cachedKeyFragment(field.Key)...)
+		dst = append(dst, ',', '"')
+		dst = appendJSONString(dst, field.Key)
+		dst = append(dst, '"', ':')
 	}
 
 	switch field.Val.Kind {
