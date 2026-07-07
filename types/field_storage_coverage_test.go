@@ -511,11 +511,11 @@ func TestStaticFieldPool(t *testing.T) {
 	f.Key = "used"
 	f.Value = "data"
 	f.Type = TypedFieldInt64
-	f.Optimized = true
+	f.Val = Int64Value(7)
 	pool.Put(f)
 
 	// Put resets the field for reuse.
-	if f.Key != "" || f.Value != nil || f.Type != TypedFieldString || f.Optimized {
+	if f.Key != "" || f.Value != nil || f.Type != TypedFieldString || f.Val.Kind != KindUnknown {
 		t.Errorf("pool.Put should reset field, got %+v", f)
 	}
 }

@@ -47,9 +47,10 @@ func (p *StaticFieldPool) Get() *TypedFieldData {
 func (p *StaticFieldPool) Put(field *TypedFieldData) {
 	// Reset field before returning to pool
 	field.Key = ""
+	field.KeyDesc = nil
 	field.Value = nil
 	field.Type = TypedFieldString
-	field.Optimized = false
+	field.Val = FieldValue{}
 	p.pool.Put(field)
 }
 

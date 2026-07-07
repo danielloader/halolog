@@ -24,29 +24,32 @@ type TypedField interface {
 	IsOptimized() bool
 }
 
-// TypedFieldData represents the data structure for typed fields
+// TypedFieldData represents the data structure for typed fields.
+//
+// A copy of this struct is written into the entry's field array on every logged
+// field, so its size sits directly on the zero-allocation hot path. It carries
+// only what the capture + format paths read: the key (raw or pre-declared), the
+// typed value (Val, boxing-free for scalars), and the legacy interface value
+// (Value) used by the WithField / auto-inference / masking paths. Presentation
+// (color/style), sensitivity, and dictionary-id fields that no shipped formatter
+// reads were removed to shrink the per-field copy; field styling now lives in
+// _parked/core_fieldstyler.
 type TypedFieldData struct {
+	// Key is the raw field name. Empty when KeyDesc carries a pre-declared key.
 	Key string
 	// KeyDesc, when non-nil, points to a pre-declared FieldKey whose pre-escaped
 	// fragment lets a formatter emit the key without escaping it per call. It is
 	// nil for the ordinary string-key APIs (WithField/WithString), which the
 	// formatter may still serve from its own key-fragment cache.
 	KeyDesc *FieldKey
-	// Val stores the typed value without allocation.
-	// This is the preferred storage mechanism.
+	// Val stores the typed value without interface boxing for scalars.
+	// This is the preferred storage mechanism for the typed builder.
 	Val FieldValue
-	// Value is the legacy interface{} storage.
-	// Used for fallback or when Val is KindUnknown.
-	Value     interface{}
-	Type      TypedFieldType
-	Optimized bool
-	FieldID   int // Field dictionary ID for O(1) lookups
-
-	// Fluent API fields (High-performance zero-allocation)
-	FgColor     Color
-	BgColor     Color
-	IsSensitive bool
-	Style       uint8
+	// Value is the legacy interface{} storage, used by WithField, automatic type
+	// inference, and masking; the formatter falls back to it when Val is unset.
+	Value interface{}
+	// Type is the inferred public field type for the legacy interface path.
+	Type TypedFieldType
 }
 
 // TypedFieldType represents the type of a typed field

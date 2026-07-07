@@ -31,9 +31,11 @@ func (f TypedFieldData) GetType() TypedFieldType {
 	return f.Type
 }
 
-// IsOptimized returns true if the field is stored in optimized storage
+// IsOptimized reports whether the field uses boxing-free typed storage.
+// The dedicated optimized-storage flag was removed with the field slim; a field
+// is "optimized" when its typed Val slot carries a concrete scalar/string kind.
 func (f TypedFieldData) IsOptimized() bool {
-	return f.Optimized
+	return f.Val.Kind != KindUnknown && f.Val.Kind != KindAny
 }
 
 // Accessor methods for formatters (pointer receivers for compatibility with StaticField)
