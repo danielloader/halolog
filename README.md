@@ -59,6 +59,40 @@ func main() {
 }
 ```
 
+### Field keys: string keys vs. pre-declared keys
+
+HaloLog offers two ways to attach fields; both are correct and both are
+zero-allocation. Choose based on how hot the path is.
+
+**String keys (ergonomic — the default).** `WithField`/`WithString` take a plain
+string key. The JSON formatter escapes each distinct key once and caches the
+pre-rendered `,"key":` fragment, so repeated calls with the same key avoid
+re-escaping (one lock-free lookup per field thereafter). Use this everywhere you
+value convenience.
+
+```go
+logger.WithField("user_id", 12345).WithField("action", "login").Info("login")
+```
+
+**Pre-declared keys (fastest — for the hottest loops).** Declare each key once,
+typically as a package-level var; its escaping is computed a single time and the
+hot path emits it with one copy and **no lookup at all**. This is the zerolog/zap
+"pre-declared field" pattern.
+
+```go
+// declared once, reused forever
+var (
+    userID = halolog.Key("user_id")
+    action = halolog.Key("action")
+)
+
+logger.Typed().Str(userID, "alice").Str(action, "login").Info("login")
+// keyed typed methods: Str, Int, Int64, Float64, Bool, Err, Any
+```
+
+Rule of thumb: reach for `halolog.Key(...)` in tight, high-frequency logging
+loops; use string keys everywhere else. Neither allocates on the hot path.
+
 ### Advanced Configuration
 
 ```go

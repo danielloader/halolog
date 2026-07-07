@@ -27,6 +27,11 @@ type TypedField interface {
 // TypedFieldData represents the data structure for typed fields
 type TypedFieldData struct {
 	Key string
+	// KeyDesc, when non-nil, points to a pre-declared FieldKey whose pre-escaped
+	// fragment lets a formatter emit the key without escaping it per call. It is
+	// nil for the ordinary string-key APIs (WithField/WithString), which the
+	// formatter may still serve from its own key-fragment cache.
+	KeyDesc *FieldKey
 	// Val stores the typed value without allocation.
 	// This is the preferred storage mechanism.
 	Val FieldValue

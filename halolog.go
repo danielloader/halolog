@@ -21,6 +21,7 @@ package halolog
 import (
 	"sync"
 
+	json "github.com/go-gen-ecosystem/halolog/adapters/formatters/json"
 	"github.com/go-gen-ecosystem/halolog/config"
 	"github.com/go-gen-ecosystem/halolog/core"
 	"github.com/go-gen-ecosystem/halolog/types"
@@ -28,6 +29,21 @@ import (
 
 // Logger is an alias for core.Logger to support fluent API type usage
 type Logger = *core.Logger
+
+// Key declares a reusable field key with its JSON escaping pre-computed once.
+// Declare keys once (typically as package-level vars) and reuse them on the hot
+// path via the typed builder's keyed methods (Str/Int/…), which emit the key
+// with a single copy and never escape it per call:
+//
+//	var userID = halolog.Key("user_id")
+//	log.Typed().Str(userID, "alice").Info("login")
+//
+// Use pre-declared keys in the hottest logging paths; the plain string-key API
+// (WithField/WithString) is equally correct and is auto-cached by the JSON
+// formatter after first use, at the cost of one lock-free map lookup per field.
+func Key(name string) *types.FieldKey {
+	return &types.FieldKey{Name: name, JSONFragment: json.KeyFragment(name)}
+}
 
 var (
 	registryMu sync.Mutex

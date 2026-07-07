@@ -111,6 +111,81 @@ func (fb TypedFieldBuilder) WithError(err error) TypedFieldBuilder {
 	return fb.withTyped("error", types.ErrorValue(err))
 }
 
+// withKeyed writes a field under a pre-declared key, carrying the key's
+// pre-escaped fragment so the formatter emits it without escaping. Mirrors
+// withTyped but stores the FieldKey descriptor.
+//
+//go:inline
+func (fb TypedFieldBuilder) withKeyed(key *types.FieldKey, val types.FieldValue) TypedFieldBuilder {
+	if fb.state == nil {
+		fb.state = globalPerPPool.get()
+	}
+	entry := &fb.state.entry
+	n := entry.StaticFieldCount
+	if n < len(entry.StaticFields) {
+		entry.StaticFields[n] = types.TypedFieldData{Key: key.Name, KeyDesc: key, Val: val}
+		entry.StaticFieldCount = n + 1
+	} else {
+		entry.Fields = append(entry.Fields, types.TypedFieldData{Key: key.Name, KeyDesc: key, Val: val})
+	}
+	return fb
+}
+
+// Str adds a string field under a pre-declared key (fastest path — the key is
+// never escaped at log time). Pair with a package-level key from Key(...).
+//
+//go:inline
+func (fb TypedFieldBuilder) Str(key *types.FieldKey, value string) TypedFieldBuilder {
+	return fb.withKeyed(key, types.StringValue(value))
+}
+
+// Int adds an int field under a pre-declared key.
+//
+//go:inline
+func (fb TypedFieldBuilder) Int(key *types.FieldKey, value int) TypedFieldBuilder {
+	return fb.withKeyed(key, types.IntValue(value))
+}
+
+// Int64 adds an int64 field under a pre-declared key.
+//
+//go:inline
+func (fb TypedFieldBuilder) Int64(key *types.FieldKey, value int64) TypedFieldBuilder {
+	return fb.withKeyed(key, types.Int64Value(value))
+}
+
+// Float64 adds a float64 field under a pre-declared key.
+//
+//go:inline
+func (fb TypedFieldBuilder) Float64(key *types.FieldKey, value float64) TypedFieldBuilder {
+	return fb.withKeyed(key, types.Float64Value(value))
+}
+
+// Bool adds a bool field under a pre-declared key.
+//
+//go:inline
+func (fb TypedFieldBuilder) Bool(key *types.FieldKey, value bool) TypedFieldBuilder {
+	return fb.withKeyed(key, types.BoolValue(value))
+}
+
+// Err adds an error field under a pre-declared key. A nil error is a no-op.
+//
+//go:inline
+func (fb TypedFieldBuilder) Err(key *types.FieldKey, err error) TypedFieldBuilder {
+	if err == nil {
+		return fb
+	}
+	return fb.withKeyed(key, types.ErrorValue(err))
+}
+
+// Any adds an arbitrary value under a pre-declared key. Prefer the typed methods
+// on the hot path; Any is a convenience for values whose type is not known ahead
+// of time.
+//
+//go:inline
+func (fb TypedFieldBuilder) Any(key *types.FieldKey, value interface{}) TypedFieldBuilder {
+	return fb.withKeyed(key, types.AnyValue(value))
+}
+
 // Info logs an info message with the accumulated typed fields.
 //
 //go:inline
