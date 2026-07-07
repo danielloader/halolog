@@ -240,3 +240,55 @@ func BenchmarkTenFields(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkTwentyFields — twenty integer fields (a heavy-field stress case).
+func BenchmarkTwentyFields(b *testing.B) {
+	b.Run("HaloLog_WithField", func(b *testing.B) {
+		l := newHaloJSON()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			fb := l.WithField("k0", 0)
+			for j := 1; j < 20; j++ {
+				fb = fb.WithField("k", j)
+			}
+			fb.Info(msg)
+		}
+	})
+	b.Run("HaloLog_Typed", func(b *testing.B) {
+		l := newHaloJSON()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			fb := l.Typed().WithInt("k0", 0)
+			for j := 1; j < 20; j++ {
+				fb = fb.WithInt("k", j)
+			}
+			fb.Info(msg)
+		}
+	})
+	b.Run("Zerolog", func(b *testing.B) {
+		l := newZerolog()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			e := l.Info()
+			for j := 0; j < 20; j++ {
+				e = e.Int("k", j)
+			}
+			e.Msg(msg)
+		}
+	})
+	b.Run("Zap", func(b *testing.B) {
+		l := newZap()
+		fs := make([]zap.Field, 20)
+		for j := 0; j < 20; j++ {
+			fs[j] = zap.Int("k", j)
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			l.Info(msg, fs...)
+		}
+	})
+}
