@@ -65,7 +65,7 @@ func (f *fallbackFileLock) TryLock(file *os.File) error {
 
 	// Write our PID
 	pid := utils.FormatString("%d\n", os.Getpid())
-	if err := os.WriteFile(pidFile, []byte(pid), 0644); err != nil {
+	if err := os.WriteFile(pidFile, []byte(pid), 0o600); err != nil {
 		return fmt.Errorf("failed to write PID file: %w", err)
 	}
 

@@ -43,6 +43,18 @@ const (
 	// File flags (configurable O_SYNC)
 	fileFlagsAsync = os.O_CREATE | os.O_APPEND | os.O_WRONLY
 	fileFlagsSync  = os.O_CREATE | os.O_APPEND | os.O_WRONLY | os.O_SYNC
+
+	// Secure-by-default permissions. Logs may contain PII/PHI even with masking
+	// enabled, so the shipped defaults are owner-only: files 0600, dirs 0700.
+	// This avoids world-readable log data for a module that markets GDPR/HIPAA/PCI
+	// compliance. Operators who need broader access can relax perms out of band.
+	logFileMode = os.FileMode(0o600)
+	logDirMode  = os.FileMode(0o700)
+
+	// flushDrainTimeout bounds how long Flush waits for the async batch worker to
+	// drain the ring buffer before syncing, so a stalled worker cannot hang the
+	// caller indefinitely.
+	flushDrainTimeout = 5 * time.Second
 )
 
 // === Pre-allocated Errors ===
@@ -407,7 +419,7 @@ func NewFileAdapter(path string, config *RotationConfig) (*FileAdapter, error) {
 
 	// Ensure directory exists
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, logDirMode); err != nil {
 		if adapter.useFlock {
 			adapter.releaseFileLock()
 		}
@@ -699,9 +711,27 @@ func (f *FileAdapter) Metrics() *FileAdapterMetrics {
 }
 
 // Flush forces any buffered data to be synced to disk.
+//
+// Writes are enqueued into the lock-free ring buffer and drained asynchronously
+// by the batch worker, so a naive Sync() could race ahead of the worker and
+// persist an empty file. Flush therefore first waits (bounded) for the ring to
+// fully drain — QueueDepth returns to zero once the worker has written every
+// enqueued entry to the underlying file handle — and only then fsyncs. This
+// gives Flush its documented "prior writes are durably on disk" contract.
 func (f *FileAdapter) Flush() error {
 	if f.closed.Load() {
 		return ErrFileClosed
+	}
+
+	// Wait for the batch worker to drain all in-flight entries to the file
+	// handle. Bounded so a stalled worker (e.g. open circuit breaker) cannot
+	// hang the caller forever.
+	deadline := time.Now().Add(flushDrainTimeout)
+	for f.metrics.QueueDepth.Load() > 0 {
+		if time.Now().After(deadline) {
+			break
+		}
+		runtime.Gosched()
 	}
 
 	f.fileMu.Lock()
@@ -729,7 +759,7 @@ func (f *FileAdapter) openFile() error {
 		flags = fileFlagsSync
 	}
 
-	file, err := os.OpenFile(f.path, flags, 0644)
+	file, err := os.OpenFile(f.path, flags, logFileMode)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
@@ -797,15 +827,20 @@ func (f *FileAdapter) rotateAsync(backupFile string) {
 	}
 }
 
-// compressFile compresses a file with gzip
+// compressFile compresses a file with gzip. src and dst are internally-derived
+// rotation paths (the adapter's own log file plus a timestamp suffix), never
+// caller/attacker-controlled input, so the G304 file-inclusion flags are false
+// positives here.
 func compressFile(src, dst string) (err error) {
-	srcFile, err := os.Open(src)
+	srcFile, err := os.Open(src) //nolint:gosec // G304: src is an internally-derived rotated log path, not user input
 	if err != nil {
 		return err
 	}
 	defer func() { _ = srcFile.Close() }()
 
-	dstFile, err := os.Create(dst)
+	// Compressed rotations hold the same log data, so keep them owner-only (0600)
+	// rather than os.Create's world-readable 0666&umask default.
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, logFileMode) //nolint:gosec // G304: dst is an internally-derived rotated log path, not user input
 	if err != nil {
 		return err
 	}

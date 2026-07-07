@@ -90,8 +90,9 @@ func (fl *FileLock) Lock(timeout time.Duration) error {
 
 // TryLock attempts to acquire the lock without blocking
 func (fl *FileLock) TryLock() error {
-	// Open or create lock file
-	lockFile, err := os.OpenFile(fl.path+".lock", os.O_CREATE|os.O_RDWR, 0644)
+	// Open or create lock file. Owner-only (0600): the lock sits next to
+	// potentially sensitive log data and only this process needs to read/write it.
+	lockFile, err := os.OpenFile(fl.path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to open lock file: %w", err)
 	}
