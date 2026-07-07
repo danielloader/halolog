@@ -29,9 +29,13 @@ import (
 )
 
 const (
-	timestampLen      = 32
-	cacheLineSize     = 64
-	smallIntCacheSize = 100
+	timestampLen  = 32
+	cacheLineSize = 64
+	// smallIntCacheSize bounds the pre-rendered small-integer string cache. It
+	// covers 0..511, which spans the common cases (small counts, ports, and the
+	// full HTTP status-code range) so those values format with a single copy
+	// instead of a strconv conversion.
+	smallIntCacheSize = 512
 )
 
 // FIXED: Atomic pointer to immutable cache
@@ -46,13 +50,9 @@ func init() {
 	// Initialize cache
 	globalTsCachePtr.Store(&timestampCache{})
 
-	// Pre-compute small ints
+	// Pre-compute small ints (correct for any width, e.g. 3-digit codes).
 	for i := 0; i < smallIntCacheSize; i++ {
-		if i < 10 {
-			smallInts[i] = string([]byte{byte('0' + i)})
-		} else {
-			smallInts[i] = string([]byte{byte('0' + i/10), byte('0' + i%10)})
-		}
+		smallInts[i] = strconv.Itoa(i)
 	}
 
 	// A byte can be written into a JSON string verbatim unless it is a control
@@ -282,7 +282,7 @@ func appendField(dst []byte, field *types.TypedFieldData) []byte {
 		dst = appendJSONString(dst, field.Val.String)
 		return append(dst, '"')
 	case types.KindInt, types.KindInt64:
-		return strconv.AppendInt(dst, field.Val.Int64, 10)
+		return appendInt(dst, field.Val.Int64)
 	case types.KindFloat64:
 		return strconv.AppendFloat(dst, field.Val.Float64, 'g', -1, 64)
 	case types.KindBool:
@@ -322,25 +322,25 @@ func appendAny(dst []byte, v interface{}) []byte {
 		}
 		return append(dst, "false"...)
 	case int:
-		return strconv.AppendInt(dst, int64(x), 10)
+		return appendInt(dst, int64(x))
 	case int8:
-		return strconv.AppendInt(dst, int64(x), 10)
+		return appendInt(dst, int64(x))
 	case int16:
-		return strconv.AppendInt(dst, int64(x), 10)
+		return appendInt(dst, int64(x))
 	case int32:
-		return strconv.AppendInt(dst, int64(x), 10)
+		return appendInt(dst, int64(x))
 	case int64:
-		return strconv.AppendInt(dst, x, 10)
+		return appendInt(dst, x)
 	case uint:
-		return strconv.AppendUint(dst, uint64(x), 10)
+		return appendUint(dst, uint64(x))
 	case uint8:
-		return strconv.AppendUint(dst, uint64(x), 10)
+		return appendUint(dst, uint64(x))
 	case uint16:
-		return strconv.AppendUint(dst, uint64(x), 10)
+		return appendUint(dst, uint64(x))
 	case uint32:
-		return strconv.AppendUint(dst, uint64(x), 10)
+		return appendUint(dst, uint64(x))
 	case uint64:
-		return strconv.AppendUint(dst, x, 10)
+		return appendUint(dst, x)
 	case float32:
 		return strconv.AppendFloat(dst, float64(x), 'g', -1, 32)
 	case float64:
@@ -421,6 +421,14 @@ func appendInt(dst []byte, i int64) []byte {
 		return append(dst, smallInts[i]...)
 	}
 	return strconv.AppendInt(dst, i, 10)
+}
+
+//go:inline
+func appendUint(dst []byte, u uint64) []byte {
+	if u < uint64(smallIntCacheSize) {
+		return append(dst, smallInts[u]...)
+	}
+	return strconv.AppendUint(dst, u, 10)
 }
 
 // EstimatedSize returns an estimated buffer size for pre-allocation
