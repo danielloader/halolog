@@ -145,6 +145,36 @@ adapter := http.NewHTTPAdapterWithOptions(&http.HTTPAdapterOptions{
 })
 ```
 
+### Async ring (low caller latency)
+
+Wrap any destination to move serialization and I/O off the calling goroutine.
+Producers copy each record into a bounded, lock-free ring and return immediately;
+a single background goroutine serializes and writes. This optimizes for low,
+predictable **caller latency** (not total throughput, which is bounded by the one
+writer). The record is copied into ring-owned storage, so it is safe even though
+the logger recycles its entry immediately.
+
+```go
+import (
+    "os"
+    "github.com/go-gen-ecosystem/halolog/adapters/outputs/asyncring"
+    jsonfmt "github.com/go-gen-ecosystem/halolog/adapters/formatters/json"
+)
+
+adapter, _ := asyncring.New(asyncring.Options{
+    Writer:    os.Stdout,
+    Formatter: jsonfmt.NewJsonFormatter(),
+    Capacity:  1024,             // rounded up to a power of two
+    OnFull:    asyncring.Drop,   // or asyncring.Block
+})
+defer adapter.Close()           // drains everything already accepted
+// adapter.Dropped() reports records dropped under overload (OnFull=Drop)
+```
+
+Caveat: field values are captured by shallow copy. Log values, not mutable
+references — a `WithField("x", &mutableStruct)` may be serialized later by the
+background goroutine.
+
 ### Syslog
 
 ```go

@@ -6,6 +6,31 @@
 All notable changes to HaloLog are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Pre-declared field keys** (`halolog.Key`, typed builder `Str/Int/Bool/…`
+  methods) whose JSON escaping is computed once, so the hot path emits a key with
+  a single copy and no escaping or lookup. The plain string-key API is also
+  auto-cached by the JSON formatter after first use (lock-free, 0-alloc).
+- **Async ring adapter** (`adapters/outputs/asyncring`) — a bounded, lock-free
+  multi-producer/single-consumer ring that moves serialization and I/O off the
+  caller's goroutine for low, predictable caller latency. Records are copied into
+  ring-owned storage; `OnFull` selects drop (default, wait-free) or block; `Close`
+  drains losslessly.
+
+### Changed
+- The JSON formatter's small-integer cache now covers 0–511 (small counts, ports,
+  the HTTP status range) and the typed and boxed int/uint field paths use it.
+
+### Fixed
+- **`adapters/middleware` async use-after-recycle** — the channel-based async
+  adapter enqueued a pointer to the caller's pooled entry, which the logger
+  recycles immediately, so the background writer could serialize an overwritten
+  record. Each write now copies the record into a pooled, detached entry
+  (allocation-free after warmup); the new lock-free `asyncring` adapter is the
+  recommended high-throughput variant.
+
 ## [1.0.0] - 2026-07-07
 
 First public release: a zero-allocation structured logging framework for Go.
