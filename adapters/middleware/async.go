@@ -57,16 +57,29 @@ type AsyncAdapter struct {
 	wg            sync.WaitGroup
 	batchSize     int
 	flushInterval time.Duration
-	flushChan     chan struct{}
-	doneChan      chan struct{}
-	lastError     error
-	errorMu       sync.Mutex
+	// flushChan carries an explicit per-request ack channel that the background
+	// writer closes once it has drained and flushed. A per-request ack avoids the
+	// stale-token hazard of a shared buffered signal (a timed-out Flush leaving a
+	// token that a later Flush would consume prematurely).
+	flushChan chan chan struct{}
+	lastError error
+	errorMu   sync.Mutex
 
 	// sendMu guards concurrent sends on a.buffer against Close.
 	// Writers take RLock; Close takes Lock. Combined with the closing flag it
 	// makes the (check-closing, send) pair atomic w.r.t. shutdown.
 	sendMu  sync.RWMutex
 	closing int32 // atomic flag to indicate closing state
+
+	// entryPool recycles the detached entry copies that are enqueued. The caller
+	// passes a pooled per-P entry that is recycled the instant Write returns, so
+	// enqueuing that pointer would let the background writer serialize a
+	// subsequently-overwritten entry (use-after-recycle). Each Write instead
+	// copies the record into a pooled copy that the adapter owns until the base
+	// adapter has written it, then returns it here. This keeps the async path
+	// correct and allocation-free after warmup. Use the asyncring adapter for the
+	// highest-throughput lock-free variant.
+	entryPool sync.Pool
 }
 
 // AsyncAdapterOptions contains configuration options for AsyncAdapter
@@ -105,8 +118,13 @@ func NewAsyncAdapter(base types.Adapter, options *AsyncAdapterOptions) *AsyncAda
 		cancel:        cancel,
 		batchSize:     batchSize,
 		flushInterval: flushInterval,
-		flushChan:     make(chan struct{}),
-		doneChan:      make(chan struct{}, 1),
+		flushChan:     make(chan chan struct{}),
+		entryPool: sync.Pool{New: func() any {
+			return &types.LogEntry{
+				StaticFields: make([]types.TypedFieldData, 0, 64),
+				Fields:       make([]types.TypedFieldData, 0, 8),
+			}
+		}},
 	}
 
 	// Start background writer
@@ -128,6 +146,41 @@ func (a *AsyncAdapter) setLastError(err error) {
 		a.lastError = err
 		a.errorMu.Unlock()
 	}
+}
+
+// acquireCopy returns a pooled, detached copy of src safe to enqueue. Field data
+// is shallow-copied into the copy's own storage, so the caller's pooled entry can
+// be recycled the moment Write returns. Allocates nothing after warmup.
+func (a *AsyncAdapter) acquireCopy(src *types.LogEntry) *types.LogEntry {
+	c := a.entryPool.Get().(*types.LogEntry)
+	c.Level = src.Level
+	c.Message = src.Message
+	c.Component = src.Component
+	c.Timestamp = src.Timestamp
+	c.TimestampUnix = src.TimestampUnix
+	c.File = src.File
+	c.Line = src.Line
+	c.Error = src.Error
+	c.ErrorMsg = src.ErrorMsg
+
+	n := src.StaticFieldCount
+	if n > len(src.StaticFields) {
+		n = len(src.StaticFields)
+	}
+	c.StaticFields = append(c.StaticFields[:0], src.StaticFields[:n]...)
+	c.StaticFieldCount = len(c.StaticFields)
+	c.Fields = append(c.Fields[:0], src.Fields...)
+	return c
+}
+
+// releaseCopy clears a copy and returns it to the pool. Called by the background
+// writer once the base adapter has consumed the entry.
+func (a *AsyncAdapter) releaseCopy(c *types.LogEntry) {
+	c.StaticFields = c.StaticFields[:0]
+	c.StaticFieldCount = 0
+	c.Fields = c.Fields[:0]
+	c.Error = nil
+	a.entryPool.Put(c)
 }
 
 // getLastError retrieves and clears the last error
@@ -159,11 +212,15 @@ func (a *AsyncAdapter) Write(entry *types.LogEntry) error {
 		return ErrAsyncClosed
 	}
 
-	// Try to write to buffer without blocking.
+	// Copy into a pooled, detached entry and enqueue that; the caller's pooled
+	// entry may be recycled the instant Write returns. Try without blocking; on a
+	// full buffer, return the copy to the pool so it is not leaked.
+	c := a.acquireCopy(entry)
 	select {
-	case a.buffer <- entry:
+	case a.buffer <- c:
 		return nil
 	default:
+		a.releaseCopy(c)
 		return ErrAsyncBufferFull
 	}
 }
@@ -193,13 +250,14 @@ func (a *AsyncAdapter) Flush() error {
 	}
 
 	// Ask the writer to drain the buffer and flush the base adapter, then wait
-	// for its acknowledgement. Use a bounded wait so a stuck base adapter cannot
-	// hang the caller forever.
+	// for its acknowledgement on a fresh per-request channel. Use a bounded wait
+	// so a stuck base adapter cannot hang the caller forever.
+	ack := make(chan struct{})
 	select {
-	case a.flushChan <- struct{}{}:
+	case a.flushChan <- ack:
 		select {
-		case <-a.doneChan:
-			// Writer completed the drain + base flush.
+		case <-ack:
+			// Writer completed the drain + base flush for THIS request.
 		case <-a.ctx.Done():
 			// Shutting down; fall through to error check.
 		case <-time.After(5 * time.Second):
@@ -283,7 +341,7 @@ func (a *AsyncAdapter) backgroundWriter() {
 				batch = batch[:0]
 			}
 
-		case <-a.flushChan:
+		case ack := <-a.flushChan:
 			// Drain everything currently queued, then flush the batch and the
 			// base adapter, so Flush() observes a fully-drained buffer.
 			batch = a.drainInto(batch)
@@ -292,11 +350,7 @@ func (a *AsyncAdapter) backgroundWriter() {
 			if err := a.base.Flush(); err != nil {
 				a.setLastError(err)
 			}
-			// Acknowledge completion (non-blocking; doneChan is buffered).
-			select {
-			case a.doneChan <- struct{}{}:
-			default:
-			}
+			close(ack) // acknowledge this specific flush request
 
 		case <-ticker.C:
 			// Periodic flush
@@ -337,15 +391,23 @@ func (a *AsyncAdapter) flushBatch(batch []*types.LogEntry) {
 		return
 	}
 
+	var firstErr error
 	for _, entry := range batch {
-		if err := a.base.Write(entry); err != nil {
-			a.setLastError(err)
-			return // Stop processing on first error
+		if firstErr == nil {
+			if err := a.base.Write(entry); err != nil {
+				a.setLastError(err)
+				firstErr = err
+			}
 		}
+		// Always return the copy to the pool, even after an error, so copies are
+		// never leaked.
+		a.releaseCopy(entry)
 	}
 
-	// Flush base adapter periodically
-	if err := a.base.Flush(); err != nil {
-		a.setLastError(err)
+	// Flush base adapter periodically when all entries were written.
+	if firstErr == nil {
+		if err := a.base.Flush(); err != nil {
+			a.setLastError(err)
+		}
 	}
 }
