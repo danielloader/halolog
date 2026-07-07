@@ -36,7 +36,19 @@ var (
 	ErrAsyncWriteEntry = errors.New("failed to write entry")
 )
 
-// AsyncAdapter provides non-blocking logging with background writer
+// AsyncAdapter provides non-blocking logging with a single background writer.
+//
+// Concurrency model:
+//   - The backgroundWriter goroutine is the SOLE consumer of a.buffer. No other
+//     method drains the buffer, which guarantees log records are never split,
+//     duplicated, or reordered between competing consumers.
+//   - a.buffer is never closed. Shutdown is signalled exclusively via ctx
+//     cancellation. sendMu (an RWMutex) makes the "is-closing check + channel
+//     send" atomic with respect to Close(): senders hold the read lock and
+//     re-check the closing flag before sending; Close() takes the write lock so
+//     no send can be in flight while it flips the flag. This eliminates the
+//     "send on closed channel" panic entirely (the channel is simply never
+//     closed) while still refusing writes after Close begins.
 type AsyncAdapter struct {
 	base          types.Adapter
 	buffer        chan *types.LogEntry
@@ -49,7 +61,12 @@ type AsyncAdapter struct {
 	doneChan      chan struct{}
 	lastError     error
 	errorMu       sync.Mutex
-	closing       int32 // atomic flag to indicate closing state
+
+	// sendMu guards concurrent sends on a.buffer against Close.
+	// Writers take RLock; Close takes Lock. Combined with the closing flag it
+	// makes the (check-closing, send) pair atomic w.r.t. shutdown.
+	sendMu  sync.RWMutex
+	closing int32 // atomic flag to indicate closing state
 }
 
 // AsyncAdapterOptions contains configuration options for AsyncAdapter
@@ -122,31 +139,32 @@ func (a *AsyncAdapter) getLastError() error {
 	return err
 }
 
-// Write writes a log entry asynchronously
+// Write writes a log entry asynchronously.
+//
+// The send on a.buffer is performed under sendMu.RLock after re-checking the
+// closing flag, so it cannot race a concurrent Close(): the channel is never
+// closed, and Close cannot flip the closing flag while any RLock is held.
 func (a *AsyncAdapter) Write(entry *types.LogEntry) error {
 	if entry == nil {
 		return ErrAsyncNilEntry
 	}
 
-	// Check if context is already cancelled (adapter closed)
-	select {
-	case <-a.ctx.Done():
+	// Hold the read lock for the whole (check + send) so Close (which takes the
+	// write lock) cannot interleave. Many writers proceed concurrently.
+	a.sendMu.RLock()
+	defer a.sendMu.RUnlock()
+
+	// Re-check closing under the lock. Once Close sets this, no send occurs.
+	if atomic.LoadInt32(&a.closing) != 0 {
 		return ErrAsyncClosed
-	default:
 	}
 
-	// Try to write to buffer
+	// Try to write to buffer without blocking.
 	select {
 	case a.buffer <- entry:
 		return nil
 	default:
-		// Buffer is full, check if context was cancelled during this operation
-		select {
-		case <-a.ctx.Done():
-			return ErrAsyncClosed
-		default:
-			return ErrAsyncBufferFull
-		}
+		return ErrAsyncBufferFull
 	}
 }
 
@@ -160,84 +178,66 @@ func (a *AsyncAdapter) WriteZero(entry *types.LogEntry) error {
 	return a.Write(entry)
 }
 
-// Flush flushes the buffered entries
+// Flush flushes the buffered entries by delegating entirely to the single
+// backgroundWriter, which owns a.buffer. Flush never drains the buffer itself,
+// so it cannot compete with the writer for entries (no lost/duplicated/reordered
+// records). It signals the writer to drain everything currently queued and
+// waits for the writer to acknowledge completion.
 func (a *AsyncAdapter) Flush() error {
-	// Give background writer a moment to process any buffered entries
-	time.Sleep(50 * time.Millisecond)
-
-	// Signal background writer to flush current batch
-	select {
-	case a.flushChan <- struct{}{}:
-		// Wait for background writer to complete the flush (with timeout)
-		select {
-		case <-a.doneChan:
-			// Background writer completed flush
-		case <-time.After(100 * time.Millisecond):
-			// Timeout - proceed with manual flush of remaining entries
-		}
-	default:
-		// If flushChan is full, background writer is already processing
-	}
-
-	// Drain any remaining entries from buffer and write them directly
-	var entries []*types.LogEntry
-
-	for {
-		select {
-		case entry := <-a.buffer:
-			entries = append(entries, entry)
-		default:
-			// Buffer is empty
-			goto writeBatch
-		}
-	}
-
-writeBatch:
-	// Write all entries to base adapter
-	for _, entry := range entries {
-		if err := a.base.Write(entry); err != nil {
+	// If already closing/closed, the writer may be gone; flush the base directly.
+	if atomic.LoadInt32(&a.closing) != 0 {
+		if err := a.getLastError(); err != nil {
 			return ErrAsyncWriteEntry
 		}
+		return a.base.Flush()
 	}
 
-	// Check if there were any errors from background writer
+	// Ask the writer to drain the buffer and flush the base adapter, then wait
+	// for its acknowledgement. Use a bounded wait so a stuck base adapter cannot
+	// hang the caller forever.
+	select {
+	case a.flushChan <- struct{}{}:
+		select {
+		case <-a.doneChan:
+			// Writer completed the drain + base flush.
+		case <-a.ctx.Done():
+			// Shutting down; fall through to error check.
+		case <-time.After(5 * time.Second):
+			// Writer did not acknowledge in time; report as a write failure.
+			return ErrAsyncWriteEntry
+		}
+	case <-a.ctx.Done():
+		// Adapter is shutting down.
+	}
+
 	if err := a.getLastError(); err != nil {
 		return ErrAsyncWriteEntry
 	}
-
 	return a.base.Flush()
 }
 
-// Close closes the async adapter
+// Close closes the async adapter. It is safe to call multiple times.
+//
+// Close never closes a.buffer. It flips the closing flag under sendMu.Lock so
+// that no Write send can be in flight, cancels the context to stop the writer,
+// waits for the writer to drain and exit, then closes the base adapter.
 func (a *AsyncAdapter) Close() error {
-	// Set closing flag to prevent race conditions
+	// Take the write lock so all in-flight sends complete and no new send can
+	// start while we mark the adapter closing.
+	a.sendMu.Lock()
 	if !atomic.CompareAndSwapInt32(&a.closing, 0, 1) {
-		// Already closing/closed
+		// Already closing/closed.
+		a.sendMu.Unlock()
 		return nil
 	}
-
-	// Signal shutdown
+	// Signal shutdown. The writer drains the buffer on ctx.Done() before exiting.
 	a.cancel()
+	a.sendMu.Unlock()
 
-	// Close buffer channel to prevent new writes and signal background writer to exit
-	close(a.buffer)
-
-	// Wait for background writer to finish
+	// Wait for background writer to finish draining and exit.
 	a.wg.Wait()
 
-	// Drain remaining entries from buffer
-	var remainingEntries []*types.LogEntry
-	for entry := range a.buffer {
-		remainingEntries = append(remainingEntries, entry)
-	}
-
-	// Write remaining entries to base adapter
-	for _, entry := range remainingEntries {
-		// Silently continue on errors to maintain zero-allocation compliance
-		_ = a.base.Write(entry)
-	}
-
-	// Close base adapter
+	// Close base adapter.
 	return a.base.Close()
 }
 
@@ -261,7 +261,9 @@ func (a *AsyncAdapter) Health() error {
 	}
 }
 
-// backgroundWriter processes log entries in the background
+// backgroundWriter is the SOLE consumer of a.buffer. It batches entries and
+// flushes them to the base adapter on batch-full, periodic tick, explicit
+// Flush, or shutdown.
 func (a *AsyncAdapter) backgroundWriter() {
 	defer a.wg.Done()
 
@@ -272,50 +274,59 @@ func (a *AsyncAdapter) backgroundWriter() {
 
 	for {
 		select {
-		case entry, ok := <-a.buffer:
-			if !ok {
-				// Buffer closed, flush remaining entries
-				if len(batch) > 0 {
-					a.flushBatch(batch)
-				}
-				return
-			}
-
+		case entry := <-a.buffer:
 			batch = append(batch, entry)
 
 			// Flush if batch is full
 			if len(batch) >= a.batchSize {
 				a.flushBatch(batch)
-				batch = nil
+				batch = batch[:0]
 			}
 
 		case <-a.flushChan:
-			// Force flush current batch
-			if len(batch) > 0 {
-				a.flushBatch(batch)
-				batch = nil
+			// Drain everything currently queued, then flush the batch and the
+			// base adapter, so Flush() observes a fully-drained buffer.
+			batch = a.drainInto(batch)
+			a.flushBatch(batch)
+			batch = batch[:0]
+			if err := a.base.Flush(); err != nil {
+				a.setLastError(err)
 			}
-			// Signal that flush is complete (only if not closing)
-			if atomic.LoadInt32(&a.closing) == 0 {
-				select {
-				case a.doneChan <- struct{}{}:
-				default:
-				}
+			// Acknowledge completion (non-blocking; doneChan is buffered).
+			select {
+			case a.doneChan <- struct{}{}:
+			default:
 			}
 
 		case <-ticker.C:
 			// Periodic flush
 			if len(batch) > 0 {
 				a.flushBatch(batch)
-				batch = nil
+				batch = batch[:0]
 			}
 
 		case <-a.ctx.Done():
-			// Context cancelled, flush remaining entries
+			// Context cancelled: drain any remaining entries and flush before
+			// exiting so no queued record is dropped on shutdown.
+			batch = a.drainInto(batch)
 			if len(batch) > 0 {
 				a.flushBatch(batch)
 			}
 			return
+		}
+	}
+}
+
+// drainInto pulls every entry currently buffered into batch without blocking
+// and returns the extended batch. Only the backgroundWriter calls this, so it
+// remains the single consumer of a.buffer.
+func (a *AsyncAdapter) drainInto(batch []*types.LogEntry) []*types.LogEntry {
+	for {
+		select {
+		case entry := <-a.buffer:
+			batch = append(batch, entry)
+		default:
+			return batch
 		}
 	}
 }

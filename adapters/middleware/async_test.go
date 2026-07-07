@@ -51,6 +51,14 @@ func (m *asyncMockAdapter) Write(entry *types.LogEntry) error {
 	return nil
 }
 
+// writes returns the write count under the mutex, so tests can read it without
+// racing the background writer goroutine.
+func (m *asyncMockAdapter) writes() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.writeCalls
+}
+
 func (m *asyncMockAdapter) Flush() error {
 	return nil
 }
@@ -93,8 +101,8 @@ func TestAsyncAdapter_BasicUsage(t *testing.T) {
 	// Give async adapter time to process
 	_ = adapter.Flush()
 
-	if mock.writeCalls != 1 {
-		t.Errorf("Expected 1 write call, got %d", mock.writeCalls)
+	if mock.writes() != 1 {
+		t.Errorf("Expected 1 write call, got %d", mock.writes())
 	}
 }
 
@@ -163,8 +171,8 @@ func TestAsyncAdapter_Write(t *testing.T) {
 	// Give async adapter time to process
 	time.Sleep(50 * time.Millisecond)
 
-	if mock.writeCalls != 1 {
-		t.Errorf("Expected 1 write call, got %d", mock.writeCalls)
+	if mock.writes() != 1 {
+		t.Errorf("Expected 1 write call, got %d", mock.writes())
 	}
 }
 
@@ -207,8 +215,8 @@ func TestAsyncAdapter_MultipleWrites(t *testing.T) {
 	// Give async adapter time to process all entries
 	time.Sleep(100 * time.Millisecond)
 
-	if mock.writeCalls != 10 {
-		t.Errorf("Expected 10 write calls, got %d", mock.writeCalls)
+	if mock.writes() != 10 {
+		t.Errorf("Expected 10 write calls, got %d", mock.writes())
 	}
 }
 
@@ -237,8 +245,8 @@ func TestAsyncAdapter_Flush_Comprehensive(t *testing.T) {
 		t.Errorf("Flush should not error: %v", err)
 	}
 
-	if mock.writeCalls != 5 {
-		t.Errorf("Expected 5 write calls after flush, got %d", mock.writeCalls)
+	if mock.writes() != 5 {
+		t.Errorf("Expected 5 write calls after flush, got %d", mock.writes())
 	}
 }
 
@@ -253,8 +261,8 @@ func TestAsyncAdapter_FlushEmpty(t *testing.T) {
 		t.Errorf("Flush should not error when empty: %v", err)
 	}
 
-	if mock.writeCalls != 0 {
-		t.Errorf("Expected 0 write calls, got %d", mock.writeCalls)
+	if mock.writes() != 0 {
+		t.Errorf("Expected 0 write calls, got %d", mock.writes())
 	}
 }
 
@@ -279,8 +287,8 @@ func TestAsyncAdapter_Close_Comprehensive(t *testing.T) {
 	}
 
 	// Should have processed all entries
-	if mock.writeCalls != 3 {
-		t.Errorf("Expected 3 write calls after close, got %d", mock.writeCalls)
+	if mock.writes() != 3 {
+		t.Errorf("Expected 3 write calls after close, got %d", mock.writes())
 	}
 
 	// Writing after close should error
@@ -315,8 +323,8 @@ func TestAsyncAdapter_BackgroundWriter(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Should have processed all entries
-	if mock.writeCalls != 3 {
-		t.Errorf("Expected 3 write calls, got %d", mock.writeCalls)
+	if mock.writes() != 3 {
+		t.Errorf("Expected 3 write calls, got %d", mock.writes())
 	}
 }
 
@@ -348,8 +356,8 @@ func TestAsyncAdapter_FlushBatch(t *testing.T) {
 		t.Errorf("Flush should not error: %v", err)
 	}
 
-	if mock.writeCalls != 3 {
-		t.Errorf("Expected 3 write calls after flush, got %d", mock.writeCalls)
+	if mock.writes() != 3 {
+		t.Errorf("Expected 3 write calls after flush, got %d", mock.writes())
 	}
 }
 
@@ -425,8 +433,8 @@ func TestAsyncAdapter_ConcurrentWrites(t *testing.T) {
 	_ = adapter.Flush()
 
 	expectedWrites := numGoroutines * writesPerGoroutine
-	if mock.writeCalls != expectedWrites {
-		t.Errorf("Expected %d write calls, got %d", expectedWrites, mock.writeCalls)
+	if mock.writes() != expectedWrites {
+		t.Errorf("Expected %d write calls, got %d", expectedWrites, mock.writes())
 	}
 }
 
@@ -457,8 +465,8 @@ func TestAsyncAdapter_BufferFull(t *testing.T) {
 	// Flush to ensure all entries are processed
 	_ = adapter.Flush()
 
-	if mock.writeCalls != 20 {
-		t.Errorf("Expected 20 write calls, got %d", mock.writeCalls)
+	if mock.writes() != 20 {
+		t.Errorf("Expected 20 write calls, got %d", mock.writes())
 	}
 }
 
