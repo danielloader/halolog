@@ -222,7 +222,8 @@ func (fb TypedFieldBuilder) Error(msg string) {
 	fb.dispatchPooled(types.ErrorLevel, msg)
 }
 
-// dispatchTyped handles the typed fast path (1-4 fields, stack-allocated).
+// dispatchTyped handles the typed inline-field path (1-4 fields held on the
+// builder value, no pool acquired while chaining).
 //
 //go:inline
 func (fb TypedFieldBuilder) dispatchTyped(level types.LogLevel, msg string) {
@@ -237,25 +238,42 @@ func (fb TypedFieldBuilder) dispatchTyped(level types.LogLevel, msg string) {
 		return
 	}
 
-	// Build minimal entry
-	var entry MinimalFieldEntry
+	// Dispatch through a pooled per-P entry. A stack-local entry cannot survive
+	// being passed to the adapter's WriteZero interface method without escaping to
+	// the heap (one allocation per call); the pooled entry is already heap-resident
+	// and reused, so dispatch stays zero-allocation.
+	state := globalPerPPool.get()
+	entry := &state.entry
 	entry.Level = level
 	entry.Message = msg
 	entry.Component = fb.logger.component
 	entry.TimestampUnix = fb.logger.clock.GetNsecValue()
-	entry.StaticFieldCount = int(fb.fields.n)
 
-	// Convert typed fields to TypedFieldData
-	for i := uint8(0); i < fb.fields.n; i++ {
+	n := int(fb.fields.n)
+	for i := 0; i < n; i++ {
 		f := &fb.fields.fields[i]
-		entry.StaticFields[i] = types.TypedFieldData{
-			Key: f.Key,
-			Val: f.Val,
+		entry.StaticFields[i] = types.TypedFieldData{Key: f.Key, Val: f.Val}
+	}
+	entry.StaticFieldCount = n
+	entry.StaticFields = entry.StaticFields[:n]
+
+	if fb.logger.enableMasking && fb.logger.masker != nil {
+		fb.logger.masker.Apply(entry)
+	}
+
+	if len(fb.logger.adapters) == 1 {
+		_ = fb.logger.adapters[0].WriteZero(entry)
+	} else {
+		for _, a := range fb.logger.adapters {
+			_ = a.WriteZero(entry)
 		}
 	}
 
-	// Dispatch
-	fb.logger.writeMinimalEntry(&entry)
+	if fb.logger.metrics != nil {
+		fb.logger.metrics.counts[level].Add(1)
+	}
+
+	globalPerPPool.put(state)
 }
 
 // dispatchPooled handles the pool path (>4 fields).
@@ -284,6 +302,10 @@ func (fb TypedFieldBuilder) dispatchPooled(level types.LogLevel, msg string) {
 		for _, a := range fb.logger.adapters {
 			_ = a.WriteZero(entry)
 		}
+	}
+
+	if fb.logger.metrics != nil {
+		fb.logger.metrics.counts[level].Add(1)
 	}
 
 	globalPerPPool.put(fb.state)

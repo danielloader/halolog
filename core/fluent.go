@@ -21,25 +21,14 @@ import (
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
-// MinimalFieldEntry is a lightweight entry for single-field logging optimization.
-// Size: ~192 bytes - stays on stack for sub-20ns performance.
-type MinimalFieldEntry struct {
-	Level            types.LogLevel
-	Message          string
-	Component        string
-	TimestampUnix    int64
-	StaticFieldCount int
-	StaticFields     [4]types.TypedFieldData
-}
-
 // FieldBuilder provides a fluent API for building log entries with fields.
 // This is a VALUE TYPE to avoid heap escape - returned by value, not pointer.
 //
-// Uses UltraFluent pattern from clean package:
-// - Get per-P state on first field addition
-// - Write directly to StaticBuffer (no intermediate conversion)
-// - Single-field uses MinimalFieldEntry for sub-20ns performance
-// - Multi-field uses pooled LogEntry directly
+// Design:
+//   - Get per-P pooled state on first field addition (lazy acquisition)
+//   - Write fields directly into the pooled entry's static buffer (zero-copy)
+//   - Dispatch reuses the pooled entry so passing it through the adapter's
+//     WriteZero interface method does not force a per-call heap allocation
 //
 // Usage:
 //
@@ -133,26 +122,11 @@ func (fb FieldBuilder) Info(msg string) {
 
 	entry := &fb.state.entry
 
-	// Single-field + single adapter + no masking = ultra-fast path
-	if entry.StaticFieldCount == 1 && len(fb.logger.adapters) == 1 && !fb.logger.enableMasking {
-		var minimalEntry MinimalFieldEntry
-		minimalEntry.Level = types.InfoLevel
-		minimalEntry.Message = msg
-		minimalEntry.Component = fb.logger.component
-		minimalEntry.TimestampUnix = fb.logger.clock.GetNsecValue()
-		minimalEntry.StaticFieldCount = 1
-		minimalEntry.StaticFields[0] = entry.StaticFields[0]
-
-		if fb.logger.discardAdapter != nil {
-			_ = fb.logger.discardAdapter.WriteZero(nil)
-		} else {
-			fb.logger.writeMinimalEntry(&minimalEntry)
-		}
-		globalPerPPool.put(fb.state)
-		return
-	}
-
-	// Multi-field path - use per-P state directly
+	// Dispatch through the pooled per-P entry. A single-field special case using
+	// a stack-local MinimalFieldEntry was removed: passing its address through the
+	// adapter's WriteZero interface method forced escape analysis to heap-allocate
+	// it on every call (2 allocs/op), which was slower than reusing the pooled
+	// entry the way the multi-field path already does (0 allocs/op).
 	entry.Level = types.InfoLevel
 	entry.Message = msg
 	entry.Component = fb.logger.component
@@ -196,20 +170,6 @@ func (fb FieldBuilder) Debug(msg string) {
 
 	entry := &fb.state.entry
 
-	if entry.StaticFieldCount == 1 && len(fb.logger.adapters) == 1 && !fb.logger.enableMasking {
-		var minimalEntry MinimalFieldEntry
-		minimalEntry.Level = types.DebugLevel
-		minimalEntry.Message = msg
-		minimalEntry.Component = fb.logger.component
-		minimalEntry.TimestampUnix = fb.logger.clock.GetNsecValue()
-		minimalEntry.StaticFieldCount = 1
-		minimalEntry.StaticFields[0] = entry.StaticFields[0]
-
-		fb.logger.writeMinimalEntry(&minimalEntry)
-		globalPerPPool.put(fb.state)
-		return
-	}
-
 	entry.Level = types.DebugLevel
 	entry.Message = msg
 	entry.Component = fb.logger.component
@@ -246,20 +206,6 @@ func (fb FieldBuilder) Warn(msg string) {
 
 	entry := &fb.state.entry
 
-	if entry.StaticFieldCount == 1 && len(fb.logger.adapters) == 1 && !fb.logger.enableMasking {
-		var minimalEntry MinimalFieldEntry
-		minimalEntry.Level = types.WarnLevel
-		minimalEntry.Message = msg
-		minimalEntry.Component = fb.logger.component
-		minimalEntry.TimestampUnix = fb.logger.clock.GetNsecValue()
-		minimalEntry.StaticFieldCount = 1
-		minimalEntry.StaticFields[0] = entry.StaticFields[0]
-
-		fb.logger.writeMinimalEntry(&minimalEntry)
-		globalPerPPool.put(fb.state)
-		return
-	}
-
 	entry.Level = types.WarnLevel
 	entry.Message = msg
 	entry.Component = fb.logger.component
@@ -295,20 +241,6 @@ func (fb FieldBuilder) Error(msg string) {
 	}
 
 	entry := &fb.state.entry
-
-	if entry.StaticFieldCount == 1 && len(fb.logger.adapters) == 1 && !fb.logger.enableMasking {
-		var minimalEntry MinimalFieldEntry
-		minimalEntry.Level = types.ErrorLevel
-		minimalEntry.Message = msg
-		minimalEntry.Component = fb.logger.component
-		minimalEntry.TimestampUnix = fb.logger.clock.GetNsecValue()
-		minimalEntry.StaticFieldCount = 1
-		minimalEntry.StaticFields[0] = entry.StaticFields[0]
-
-		fb.logger.writeMinimalEntry(&minimalEntry)
-		globalPerPPool.put(fb.state)
-		return
-	}
 
 	entry.Level = types.ErrorLevel
 	entry.Message = msg
