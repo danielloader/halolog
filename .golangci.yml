@@ -1,0 +1,44 @@
+# Shared golangci-lint v2 config for all go-gen-ecosystem modules.
+# Copy into each module repo root. Keep in sync with
+# github.com/go-gen-ecosystem/.github/templates/.golangci.yml
+#
+# @author Admilson B. F. Cossa
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - gocritic
+    - revive
+    - misspell
+    - unconvert
+    - prealloc
+    - interfacebloat
+    - forbidigo
+  settings:
+    # No-god-object gate: public interfaces stay small (ISP).
+    interfacebloat:
+      max: 6
+    # Structured logging only — no fmt printing in shipped packages.
+    forbidigo:
+      forbid:
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: use structured logging, not fmt printing
+    revive:
+      rules:
+        - name: exported
+  exclusions:
+    rules:
+      # CLI entrypoints and examples may print to stdout.
+      - path: (^|/)(cmd|examples)/
+        linters:
+          - forbidigo
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
