@@ -76,14 +76,22 @@ func NewFieldEncryptor(key string) (*FieldEncryptor, error) {
 	}, nil
 }
 
-// NewFieldEncryptorWithKey creates an encryptor with a raw 32-byte key
+// NewFieldEncryptorWithKey creates an AES-GCM encryptor from a raw key.
+//
+// The key MUST be exactly 16, 24, or 32 bytes and is used verbatim: a 16-byte
+// key yields AES-128-GCM, 24 bytes AES-192-GCM, and 32 bytes AES-256-GCM. The
+// key material is never zero-padded — doing so would silently downgrade the
+// effective entropy and misrepresent the AES variant, so any other length is
+// rejected with ErrInvalidKeyLength. For a full AES-256 key derived from an
+// arbitrary passphrase, use NewFieldEncryptor.
 func NewFieldEncryptorWithKey(key []byte) (*FieldEncryptor, error) {
 	if len(key) != 16 && len(key) != 24 && len(key) != 32 {
 		return nil, ErrInvalidKeyLength
 	}
 
-	// Pad to 32 bytes if needed
-	keyBytes := make([]byte, 32)
+	// Copy the key verbatim (defensive copy; no padding). AES selects the
+	// variant (128/192/256) from the actual key length.
+	keyBytes := make([]byte, len(key))
 	copy(keyBytes, key)
 
 	block, err := aes.NewCipher(keyBytes)

@@ -81,6 +81,81 @@ func TestNewFieldEncryptorWithKey(t *testing.T) {
 	})
 }
 
+// TestNewFieldEncryptorWithKey_NoZeroPadding proves the key material is used
+// verbatim (no silent zero-padding of a 16/24-byte key up to a 32-byte
+// AES-256 key). If the implementation zero-padded a 16-byte key to 32 bytes,
+// then an AES-256 encryptor built from that same key padded to 32 bytes would
+// share the effective key and be able to decrypt the 16-byte encryptor's
+// ciphertext. It must NOT.
+func TestNewFieldEncryptorWithKey_NoZeroPadding(t *testing.T) {
+	key16 := make([]byte, 16)
+	for i := range key16 {
+		key16[i] = byte(i + 1) // non-zero material
+	}
+
+	// Real AES-128 encryptor using the 16-byte key verbatim.
+	enc128, err := NewFieldEncryptorWithKey(key16)
+	if err != nil {
+		t.Fatalf("16-byte key setup failed: %v", err)
+	}
+
+	const secret = "sensitive-value-123"
+	ct, err := enc128.Encrypt(secret)
+	if err != nil {
+		t.Fatalf("encrypt failed: %v", err)
+	}
+
+	// Round-trip through the public interface with the true key.
+	pt, err := enc128.Decrypt(ct)
+	if err != nil {
+		t.Fatalf("decrypt failed: %v", err)
+	}
+	if pt != secret {
+		t.Fatalf("round-trip mismatch: got %q want %q", pt, secret)
+	}
+
+	// Build an AES-256 encryptor from the SAME 16 bytes zero-padded to 32.
+	// This is exactly what the old buggy implementation used internally. It
+	// must NOT be able to decrypt the AES-128 ciphertext, confirming the two
+	// encryptors do not share an effective key (i.e. no zero-padding occurred).
+	padded := make([]byte, 32)
+	copy(padded, key16)
+	enc256, err := NewFieldEncryptorWithKey(padded)
+	if err != nil {
+		t.Fatalf("32-byte key setup failed: %v", err)
+	}
+	if _, err := enc256.Decrypt(ct); err == nil {
+		t.Fatal("AES-256 zero-padded key decrypted AES-128 ciphertext; key was silently padded")
+	}
+}
+
+// TestNewFieldEncryptorWithKey_RoundTripAllVariants verifies encrypt->decrypt
+// round-trips through the public interface for every supported key length.
+func TestNewFieldEncryptorWithKey_RoundTripAllVariants(t *testing.T) {
+	for _, size := range []int{16, 24, 32} {
+		key := make([]byte, size)
+		for i := range key {
+			key[i] = byte(i*7 + 3)
+		}
+		enc, err := NewFieldEncryptorWithKey(key)
+		if err != nil {
+			t.Fatalf("%d-byte key setup failed: %v", size, err)
+		}
+		const msg = "round-trip-payload"
+		ct, err := enc.Encrypt(msg)
+		if err != nil {
+			t.Fatalf("%d-byte encrypt failed: %v", size, err)
+		}
+		pt, err := enc.Decrypt(ct)
+		if err != nil {
+			t.Fatalf("%d-byte decrypt failed: %v", size, err)
+		}
+		if pt != msg {
+			t.Fatalf("%d-byte round-trip mismatch: got %q want %q", size, pt, msg)
+		}
+	}
+}
+
 func TestFieldEncryptorEncryptDecrypt(t *testing.T) {
 	enc, err := NewFieldEncryptor("test-encryption-key")
 	if err != nil {
