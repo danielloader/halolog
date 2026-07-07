@@ -16,8 +16,6 @@
 
 package types
 
-import "sync"
-
 /* =====================================================================
    IMMUTABLE FIELD STORAGE (Zero Allocation)
    ===================================================================== */
@@ -142,15 +140,10 @@ func (sf *StaticField) BoolValue() bool {
 	return false
 }
 
-// FieldSet is a fixed-size array (escapes only if > 16 fields)
-type FieldSet struct {
-	fields []StaticField // Points to stack array OR heap if copied
-}
-
-// StaticPool pre-allocates types.LogEntry objects
-type staticPool struct {
-	pool sync.Pool
-}
+// FieldSet is a fixed-size field container (escapes to the heap only if it grows
+// beyond its stack-backed capacity). Its backing storage is provided externally
+// by callers on the zero-allocation path.
+type FieldSet struct{}
 
 // ConvertTypedFieldToTypedFieldData converts a TypedField to TypedFieldData for static field storage
 func ConvertTypedFieldToTypedFieldData(field TypedField) TypedFieldData {

@@ -24,6 +24,8 @@ import (
 
 // Config interface for logger configuration
 // NOTE: This interface contains ONLY getters, ensuring immutability for atomic.Pointer usage.
+//
+//nolint:interfacebloat // Cohesive read-only view of one immutable config value; the getters must live together so the whole config can be swapped atomically via atomic.Pointer.
 type Config interface {
 	GetLevel() types.LogLevel
 	GetEnvironment() string

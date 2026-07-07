@@ -33,7 +33,9 @@ import (
 
 var httpStatusErrors [600]*HTTPStatusError
 
-// HTTPAdapterOptions - Configuration for HTTP adapter
+// HTTPAdapterOptions - Configuration for HTTP adapter.
+//
+//nolint:revive // HTTP prefix is the intended public API name; renaming would break callers across the module.
 type HTTPAdapterOptions struct {
 	URL           string
 	Method        string
@@ -53,7 +55,9 @@ var (
 	ErrHTTPBatch     = errors.New("failed to send batch")
 )
 
-// HTTPStatusError represents an HTTP status error
+// HTTPStatusError represents an HTTP status error.
+//
+//nolint:revive // HTTP prefix is the intended public API name; renaming would break callers across the module.
 type HTTPStatusError struct {
 	StatusCode int
 	message    string // Pre-computed
@@ -73,7 +77,9 @@ func newHTTPStatusError(code int) error {
 	}
 }
 
-// HTTPAdapter - TRULY zero-alloc with sync.Pool
+// HTTPAdapter - TRULY zero-alloc with sync.Pool.
+//
+//nolint:revive // HTTP prefix is the intended public API name; renaming would break callers across the module.
 type HTTPAdapter struct {
 	mu            sync.RWMutex
 	url           string
@@ -280,7 +286,7 @@ func (a *HTTPAdapter) sendBatch(entries []*types.LogEntry, start, end int) error
 
 	// Use stack-allocated buffer for numbers
 	var numBuf [20]byte
-	n := strconv.AppendInt(numBuf[:0], int64(entries[start].Timestamp.Unix()), 10)
+	n := strconv.AppendInt(numBuf[:0], entries[start].Timestamp.Unix(), 10)
 	buf.Write(n)
 
 	buf.WriteString(`,"count":`)
@@ -358,7 +364,7 @@ func (a *HTTPAdapter) sendBatch(entries []*types.LogEntry, start, end int) error
 			break
 		}
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// NOW return buffer to pool
 	a.jsonBufPool.Put(buf)
@@ -373,7 +379,7 @@ func (a *HTTPAdapter) sendBatch(entries []*types.LogEntry, start, end int) error
 // Close - FIXED: Proper cleanup
 func (a *HTTPAdapter) Close() error {
 	// Force a final flush BEFORE cancelling context
-	a.Flush() // Final flush
+	_ = a.Flush() // Final flush; error is non-actionable during Close
 
 	// Then cancel context and wait for background goroutines
 	a.cancel()
@@ -418,6 +424,7 @@ func (a *HTTPAdapter) SetFormatter(formatter types.Formatter) {
 	a.formatter = formatter
 }
 
+// StartHttpFlushTimer runs the background flush loop until the adapter context is cancelled.
 func (a *HTTPAdapter) StartHttpFlushTimer() {
 	defer a.wg.Done()
 
@@ -477,6 +484,7 @@ type ZeroJSONFormatter struct {
 	bufPool sync.Pool
 }
 
+// NewZeroJSONFormatter returns a zero-allocation JSON formatter for HTTP batch payloads.
 func NewZeroJSONFormatter() types.Formatter {
 	return &ZeroJSONFormatter{
 		bufPool: sync.Pool{

@@ -28,22 +28,6 @@ import (
 	"github.com/go-gen-ecosystem/halolog/utils"
 )
 
-// fieldBufferToTypedFields converts FieldBuffer to TypedField slice
-func asyncfieldBufferToTypedFields(buffer *types.FieldBuffer) []types.TypedField {
-	if buffer == nil {
-		return nil
-	}
-
-	fields := make([]types.TypedField, 0, buffer.Len())
-	for i := 0; i < buffer.Len(); i++ {
-		fields = append(fields, types.TypedFieldData{
-			Key:   buffer.Key(i),
-			Value: buffer.Value(i),
-		})
-	}
-	return fields
-}
-
 // Pre-allocated errors for zero-allocation design
 var (
 	ErrAsyncNilEntry   = errors.New("cannot write nil entry")

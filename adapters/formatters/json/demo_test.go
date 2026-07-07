@@ -20,7 +20,6 @@
 package json
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -94,10 +93,10 @@ func TestDemoFormatterOutput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dst := make([]byte, 0, 512)
 			result := formatter.Format(tt.entry, dst)
-			fmt.Printf("\n=== %s ===\n", tt.name)
-			fmt.Printf("Input: Level=%s, Message=%q\n", tt.entry.Level, tt.entry.Message)
-			fmt.Printf("Output: %s\n", string(result))
-			fmt.Printf("Length: %d bytes\n", len(result))
+			t.Logf("=== %s ===", tt.name)
+			t.Logf("Input: Level=%s, Message=%q", tt.entry.Level, tt.entry.Message)
+			t.Logf("Output: %s", string(result))
+			t.Logf("Length: %d bytes", len(result))
 		})
 	}
 }
@@ -135,7 +134,7 @@ func BenchmarkDetailedAnalysis(b *testing.B) {
 	// Show sample output after benchmark
 	if b.N > 0 {
 		result := formatter.Format(entry, dst)
-		fmt.Printf("\nSample output: %s\n", string(result))
-		fmt.Printf("Length: %d bytes\n", len(result))
+		b.Logf("Sample output: %s", string(result))
+		b.Logf("Length: %d bytes", len(result))
 	}
 }

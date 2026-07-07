@@ -167,7 +167,7 @@ func TestNewHTTPAdapter(t *testing.T) {
 			} else {
 				a = NewHTTPAdapter(tt.url)
 			}
-			defer a.Close()
+			defer func() { _ = a.Close() }()
 			tt.validate(t, a)
 		})
 	}
@@ -179,7 +179,7 @@ func TestNewHTTPAdapter(t *testing.T) {
 
 func TestHTTPAdapter_Name(t *testing.T) {
 	adapter := NewHTTPAdapter("http://test.com")
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 	if adapter.Name() != "HTTPAdapter" {
 		t.Error("Name incorrect")
 	}
@@ -197,7 +197,7 @@ func TestHTTPAdapter_Write(t *testing.T) {
 			BatchSize:     10,
 			FlushInterval: 0,
 		})
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		entry := &types.LogEntry{Level: types.InfoLevel, Message: "test"}
 		if err := adapter.Write(entry); err != nil {
@@ -214,7 +214,7 @@ func TestHTTPAdapter_Write(t *testing.T) {
 
 	t.Run("nil entry", func(t *testing.T) {
 		adapter := NewHTTPAdapter("http://test.com")
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 		if err := adapter.Write(nil); err != ErrHTTPNilEntry {
 			t.Errorf("Expected ErrHTTPNilEntry, got %v", err)
 		}
@@ -233,10 +233,10 @@ func TestHTTPAdapter_Write(t *testing.T) {
 			BatchSize:     2,
 			FlushInterval: 0,
 		})
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
-		adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "msg1"})
-		adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "msg2"})
+		_ = adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "msg1"})
+		_ = adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "msg2"})
 
 		time.Sleep(100 * time.Millisecond)
 		if atomic.LoadInt32(&calls) != 1 {
@@ -255,14 +255,14 @@ func TestHTTPAdapter_Write(t *testing.T) {
 			BatchSize:     200,
 			FlushInterval: 0,
 		})
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		var wg sync.WaitGroup
 		for i := 0; i < 100; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "concurrent"})
+				_ = adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "concurrent"})
 			}()
 		}
 		wg.Wait()
@@ -282,7 +282,7 @@ func TestHTTPAdapter_WriteZero(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: 0,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	entry := &types.LogEntry{
 		Level:     types.InfoLevel,
@@ -305,7 +305,7 @@ func TestHTTPAdapter_WriteZero(t *testing.T) {
 func TestHTTPAdapter_Health(t *testing.T) {
 	t.Run("healthy", func(t *testing.T) {
 		adapter := NewHTTPAdapter("http://test.com")
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 		if err := adapter.Health(); err != nil {
 			t.Errorf("Health: %v", err)
 		}
@@ -317,14 +317,14 @@ func TestHTTPAdapter_Health(t *testing.T) {
 		if err := adapter.Health(); err != context.Canceled {
 			t.Errorf("Expected context.Canceled, got %v", err)
 		}
-		adapter.Close() // Cleanup
+		_ = adapter.Close() // Cleanup
 	})
 }
 
 func TestHTTPAdapter_Flush(t *testing.T) {
 	t.Run("empty buffer", func(t *testing.T) {
 		adapter := NewHTTPAdapter("http://test.com")
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 		if err := adapter.doFlush(); err != nil {
 			t.Errorf("Flush empty: %v", err)
 		}
@@ -344,11 +344,11 @@ func TestHTTPAdapter_Flush(t *testing.T) {
 			BatchSize:     10,
 			FlushInterval: 0,
 		})
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
-		adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "msg1"})
-		adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "msg2"})
-		adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "msg3"})
+		_ = adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "msg1"})
+		_ = adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "msg2"})
+		_ = adapter.Write(&types.LogEntry{Level: types.InfoLevel, Message: "msg3"})
 
 		if err := adapter.doFlush(); err != nil {
 			t.Errorf("Flush: %v", err)
@@ -380,12 +380,12 @@ func TestHTTPAdapter_Flush(t *testing.T) {
 			BatchSize:     2,
 			FlushInterval: 0,
 		})
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		entry1, entry2 := &types.LogEntry{Message: "1"}, &types.LogEntry{Message: "2"}
-		adapter.Write(entry1)
-		adapter.Write(entry2)
-		adapter.doFlush()
+		_ = adapter.Write(entry1)
+		_ = adapter.Write(entry2)
+		_ = adapter.doFlush()
 
 		time.Sleep(100 * time.Millisecond)
 
@@ -403,10 +403,10 @@ func TestHTTPAdapter_Flush(t *testing.T) {
 			BatchSize:     2,
 			FlushInterval: 0,
 		})
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
-		adapter.Write(&types.LogEntry{Message: "1"})
-		adapter.Write(&types.LogEntry{Message: "2"})
+		_ = adapter.Write(&types.LogEntry{Message: "1"})
+		_ = adapter.Write(&types.LogEntry{Message: "2"})
 		if err := adapter.doFlush(); err == nil {
 			t.Error("Expected network error")
 		}
@@ -425,13 +425,13 @@ func TestHTTPAdapter_Flush(t *testing.T) {
 			BatchSize:     3,
 			FlushInterval: 0,
 		})
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		// Write 7 entries -> 3 batches (3, 3, 1)
 		for i := 0; i < 7; i++ {
-			adapter.Write(&types.LogEntry{Message: utils.FormatIntWithPrefix("md", i)})
+			_ = adapter.Write(&types.LogEntry{Message: utils.FormatIntWithPrefix("md", i)})
 		}
-		adapter.doFlush()
+		_ = adapter.doFlush()
 
 		time.Sleep(150 * time.Millisecond)
 		if atomic.LoadInt32(&requests) != 3 {
@@ -455,8 +455,8 @@ func TestHTTPAdapter_Close(t *testing.T) {
 			FlushInterval: 100 * time.Second, // Prevent auto-flush
 		})
 
-		adapter.Write(&types.LogEntry{Message: "1"})
-		adapter.Write(&types.LogEntry{Message: "2"})
+		_ = adapter.Write(&types.LogEntry{Message: "1"})
+		_ = adapter.Write(&types.LogEntry{Message: "2"})
 
 		if err := adapter.Close(); err != nil {
 			t.Errorf("Close: %v", err)
@@ -485,7 +485,7 @@ func TestHTTPAdapter_Close(t *testing.T) {
 		time.Sleep(50 * time.Millisecond) // Let flusher start
 
 		start := time.Now()
-		adapter.Close()
+		_ = adapter.Close()
 		if duration := time.Since(start); duration > 50*time.Millisecond {
 			t.Errorf("Close took too long: %v", duration)
 		}
@@ -494,7 +494,7 @@ func TestHTTPAdapter_Close(t *testing.T) {
 
 func TestHTTPAdapter_SetFormatter(t *testing.T) {
 	adapter := NewHTTPAdapter("http://test.com")
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	orig := adapter.formatter
 	newFormatter := NewZeroJSONFormatter()
@@ -527,7 +527,7 @@ func TestStreamingHTTPAdapter_Constructor(t *testing.T) {
 		if a.client.Timeout != 10*time.Second {
 			t.Error("Default timeout not set")
 		}
-		a.Close()
+		_ = a.Close()
 	})
 
 	t.Run("custom timeout", func(t *testing.T) {
@@ -536,7 +536,7 @@ func TestStreamingHTTPAdapter_Constructor(t *testing.T) {
 		if a.client.Timeout != timeout {
 			t.Error("Custom timeout not set")
 		}
-		a.Close()
+		_ = a.Close()
 	})
 }
 
@@ -550,7 +550,7 @@ func TestStreamingHTTPAdapter_Methods(t *testing.T) {
 		defer server.Close()
 
 		a := NewStreamingHTTPAdapter(server.URL, 0)
-		defer a.Close()
+		defer func() { _ = a.Close() }()
 
 		if err := a.Write(&types.LogEntry{Message: "test"}); err != nil {
 			t.Errorf("Write: %v", err)
@@ -564,7 +564,7 @@ func TestStreamingHTTPAdapter_Methods(t *testing.T) {
 
 	t.Run("Write nil", func(t *testing.T) {
 		a := NewStreamingHTTPAdapter("http://test.com", 0)
-		defer a.Close()
+		defer func() { _ = a.Close() }()
 		if err := a.Write(nil); err != ErrHTTPNilEntry {
 			t.Error("Expected ErrHTTPNilEntry")
 		}
@@ -577,7 +577,7 @@ func TestStreamingHTTPAdapter_Methods(t *testing.T) {
 		defer server.Close()
 
 		a := NewStreamingHTTPAdapter(server.URL, 0)
-		defer a.Close()
+		defer func() { _ = a.Close() }()
 		err := a.WriteZero(&types.LogEntry{Message: "zero"})
 		if err != nil {
 			t.Errorf("WriteZero: %v", err)
@@ -591,7 +591,7 @@ func TestStreamingHTTPAdapter_Methods(t *testing.T) {
 		defer server.Close()
 
 		a := NewStreamingHTTPAdapter(server.URL, 0)
-		defer a.Close()
+		defer func() { _ = a.Close() }()
 
 		err := a.Write(&types.LogEntry{Message: "test"})
 		if _, ok := err.(*HTTPStatusError); !ok {
@@ -608,14 +608,14 @@ func TestStreamingHTTPAdapter_Methods(t *testing.T) {
 		defer server.Close()
 
 		a := NewStreamingHTTPAdapter(server.URL, 0)
-		defer a.Close()
+		defer func() { _ = a.Close() }()
 
 		var wg sync.WaitGroup
 		for i := 0; i < 50; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				a.Write(&types.LogEntry{Message: "concurrent"})
+				_ = a.Write(&types.LogEntry{Message: "concurrent"})
 			}()
 		}
 		wg.Wait()
@@ -629,7 +629,7 @@ func TestStreamingHTTPAdapter_Methods(t *testing.T) {
 
 func TestStreamingHTTPAdapter_OtherMethods(t *testing.T) {
 	a := NewStreamingHTTPAdapter("http://test.com", 0)
-	defer a.Close()
+	defer func() { _ = a.Close() }()
 
 	if a.Name() != "StreamingHTTPAdapter" {
 		t.Error("Name incorrect")
@@ -650,7 +650,7 @@ func TestStreamingHTTPAdapter_OtherMethods(t *testing.T) {
 
 func TestStreamingHTTPAdapter_SetFormatter(t *testing.T) {
 	a := NewStreamingHTTPAdapter("http://test.com", 0)
-	defer a.Close()
+	defer func() { _ = a.Close() }()
 
 	newFormatter := NewZeroJSONFormatter()
 	a.SetFormatter(newFormatter)
@@ -774,17 +774,17 @@ func TestHTTPAdapter_FullLifecycle(t *testing.T) {
 
 	// Write 12 entries
 	for i := 0; i < 12; i++ {
-		adapter.Write(&types.LogEntry{Message: utils.FormatIntWithPrefix("msgd", i)})
+		_ = adapter.Write(&types.LogEntry{Message: utils.FormatIntWithPrefix("msgd", i)})
 	}
 
 	// Wait for auto-flush
 	time.Sleep(100 * time.Millisecond)
 
 	// Manually flush remaining
-	adapter.doFlush()
+	_ = adapter.doFlush()
 
 	// Close for final flush
-	adapter.Close()
+	_ = adapter.Close()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -816,27 +816,27 @@ func TestHTTPAdapter_Recovery(t *testing.T) {
 		BatchSize:     2,
 		FlushInterval: 0,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Successful batch
-	adapter.Write(&types.LogEntry{Message: "s1"})
-	adapter.Write(&types.LogEntry{Message: "s2"})
-	adapter.doFlush()
+	_ = adapter.Write(&types.LogEntry{Message: "s1"})
+	_ = adapter.Write(&types.LogEntry{Message: "s2"})
+	_ = adapter.doFlush()
 	time.Sleep(50 * time.Millisecond)
 
 	// Server down
 	serverUp.Store(false)
-	adapter.Write(&types.LogEntry{Message: "f1"})
-	adapter.Write(&types.LogEntry{Message: "f2"})
+	_ = adapter.Write(&types.LogEntry{Message: "f1"})
+	_ = adapter.Write(&types.LogEntry{Message: "f2"})
 	if err := adapter.doFlush(); err == nil {
 		t.Error("Expected error when server down")
 	}
 
 	// Server up
 	serverUp.Store(true)
-	adapter.Write(&types.LogEntry{Message: "r1"})
-	adapter.Write(&types.LogEntry{Message: "r2"})
-	adapter.doFlush()
+	_ = adapter.Write(&types.LogEntry{Message: "r1"})
+	_ = adapter.Write(&types.LogEntry{Message: "r2"})
+	_ = adapter.doFlush()
 	time.Sleep(200 * time.Millisecond) // Increased sleep time
 
 	actualCount := atomic.LoadInt32(&successCount)
@@ -913,7 +913,7 @@ func TestHTTPAdapter_RaceDetector(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: 10 * time.Millisecond,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	var wg sync.WaitGroup
 
@@ -922,7 +922,7 @@ func TestHTTPAdapter_RaceDetector(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			adapter.Write(&types.LogEntry{Message: utils.FormatIntWithPrefix("msgd", idx)})
+			_ = adapter.Write(&types.LogEntry{Message: utils.FormatIntWithPrefix("msgd", idx)})
 		}(i)
 	}
 
@@ -931,7 +931,7 @@ func TestHTTPAdapter_RaceDetector(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 10; i++ {
-			adapter.doFlush()
+			_ = adapter.doFlush()
 			time.Sleep(5 * time.Millisecond)
 		}
 	}()
@@ -941,7 +941,7 @@ func TestHTTPAdapter_RaceDetector(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 10; i++ {
-			adapter.Health()
+			_ = adapter.Health()
 			time.Sleep(5 * time.Millisecond)
 		}
 	}()
@@ -956,14 +956,14 @@ func TestStreamingHTTPAdapter_RaceDetector(t *testing.T) {
 	defer server.Close()
 
 	adapter := NewStreamingHTTPAdapter(server.URL, 0)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			adapter.Write(&types.LogEntry{Message: utils.FormatIntWithPrefix("msgd", idx)})
+			_ = adapter.Write(&types.LogEntry{Message: utils.FormatIntWithPrefix("msgd", idx)})
 			adapter.SetFormatter(NewZeroJSONFormatter())
 		}(i)
 	}
@@ -985,14 +985,14 @@ func BenchmarkHTTPAdapter_Write(b *testing.B) {
 		BatchSize:     1000,
 		FlushInterval: 0,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	entry := &types.LogEntry{Level: types.InfoLevel, Message: "bench"}
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 }
 
@@ -1007,7 +1007,7 @@ func BenchmarkHTTPAdapter_WriteWithFormatter(b *testing.B) {
 		BatchSize:     100,
 		FlushInterval: 0,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Pre-populate
 	for i := 0; i < 100; i++ {
@@ -1020,7 +1020,7 @@ func BenchmarkHTTPAdapter_WriteWithFormatter(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// Refill and flush
 		adapter.buffer = adapter.buffer[:100]
-		adapter.doFlush()
+		_ = adapter.doFlush()
 	}
 }
 
@@ -1031,13 +1031,13 @@ func BenchmarkStreamingHTTPAdapter_Write(b *testing.B) {
 	defer server.Close()
 
 	adapter := NewStreamingHTTPAdapter(server.URL, 0)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	entry := &types.LogEntry{Level: types.InfoLevel, Message: "bench"}
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 }

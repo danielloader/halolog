@@ -56,7 +56,7 @@ startup_registration:
 	if err != nil {
 		t.Fatalf("Failed to create temp YAML file: %v", err)
 	}
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	loader := NewConfigLoader("HALOLOG_")
 	config, err := loader.LoadFromFile(tmpFile)

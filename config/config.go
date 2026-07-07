@@ -74,7 +74,11 @@ type ImmutableConfig struct {
 	ContextFieldsConfig *ContextFieldsConfig // Context field auto-loading
 }
 
-// ConfigBuilder provides a fluent interface for building configurations
+// ConfigBuilder provides a fluent interface for building configurations.
+// It is established public API returned by NewConfig and referenced across the
+// module and docs; renaming would break the fluent API.
+//
+//nolint:revive // intentional stutter retained to preserve the public API name.
 type ConfigBuilder struct {
 	env             string
 	level           types.LogLevel
@@ -140,25 +144,18 @@ func (c *ConfigBuilder) Build() *ImmutableConfig {
 	adapters := make([]types.Adapter, len(c.adapters))
 	copy(adapters, c.adapters)
 
-	// Create file adapter if file output is configured
-	if c.fileOutput != nil {
-		// For now, create a simple console adapter as placeholder
-		// In production, this would create the actual file adapter
-		// with rotation support from the file package
-		// adapters = append(adapters, file.NewFileAdapter(c.fileOutput.Path, &file.RotationConfig{
-		//     MaxSize:    c.fileOutput.MaxSize,
-		//     MaxBackups: c.fileOutput.MaxBackups,
-		//     MaxAge:     time.Duration(c.fileOutput.MaxAge) * 24 * time.Hour,
-		// }))
-	}
+	// NOTE: fileOutput is carried on ImmutableConfig; the file adapter (which
+	// opens a file handle) is constructed at logger-construction time rather than
+	// here, to keep config building free of side effects.
 
 	// Convert masking rules
-	var maskingRules []types.MaskingRule
-	maskingRules = append(maskingRules, getDefaultMaskingRules()...)
+	defaultMaskingRules := getDefaultMaskingRules()
+	maskingRules := make([]types.MaskingRule, 0, len(defaultMaskingRules)+len(c.maskingRules))
+	maskingRules = append(maskingRules, defaultMaskingRules...)
 	maskingRules = append(maskingRules, c.maskingRules...) // Add custom rules
 
 	// Convert policy rules
-	var policyRules []interfaces.PolicyRule
+	policyRules := make([]interfaces.PolicyRule, 0, len(c.policyRules))
 	for _, rule := range c.policyRules {
 		policyRules = append(policyRules, interfaces.PolicyRule{
 			Name:    rule.Name,
@@ -190,9 +187,11 @@ func (c *ConfigBuilder) Build() *ImmutableConfig {
 			masker = masking.NewPIIMasker()
 		}
 
-		// Apply all masking rules
+		// Apply all masking rules. Build has no error return; an invalid rule
+		// pattern is a startup misconfiguration and is intentionally best-effort
+		// here, so the compile error from AddRule is discarded.
 		for _, rule := range maskingRules {
-			masker.AddRule(rule.Pattern, rule.Replace, rule.Type)
+			_ = masker.AddRule(rule.Pattern, rule.Replace, rule.Type)
 		}
 	}
 

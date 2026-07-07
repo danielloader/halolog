@@ -16,7 +16,9 @@
 
 package types
 
-// AdapterManager manages output adapters
+// AdapterManager manages output adapters.
+//
+//nolint:interfacebloat // Cohesive lifecycle+dispatch contract for the adapter set; members belong together.
 type AdapterManager interface {
 	Add(adapter Adapter)
 	Remove(name string) bool

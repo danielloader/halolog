@@ -20,7 +20,9 @@ import (
 	"sync"
 )
 
-// FieldBuilder provides fluent interface for building fields
+// FieldBuilder provides fluent interface for building fields.
+//
+//nolint:interfacebloat // One typed setter per supported field kind forms a single cohesive fluent builder.
 type FieldBuilder interface {
 	String(key string, value string) FieldBuilder
 	Int(key string, value int) FieldBuilder

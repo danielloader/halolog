@@ -29,6 +29,8 @@ import (
 //
 // Implementation Note: Methods starting with 'With' should return a generic
 // immutable copy of the logger with the new context applied.
+//
+//nolint:interfacebloat // Single hot-path logging contract; splitting it would force call-site type assertions and break the zero-alloc fluent chain that is HaloLog's core value.
 type Logger interface {
 	// -------------------------------------------------------------------------
 	// Core Structured Logging
@@ -249,45 +251,10 @@ type LogOutput interface {
 	String() string
 }
 
-// LoggerProvider provides single core logger instances (Production approach)
-type LoggerProvider interface {
-	// Get logger with default configuration
-	GetLogger(name string) types.HaloLogger
-	// Get logger with custom configuration
-	GetLoggerWithConfig(name string, config types.LoggerConfig) types.HaloLogger
-	// Get the singleton default logger
-	GetDefaultLogger() types.HaloLogger
-}
-
-// LoggerFactory creates different logger implementations for benchmarking
-// Internal use only - for finding the optimal implementation
-type LoggerFactory interface {
-	// Create experimental logger implementations for performance testing
-	CreateStandardLogger(config types.LoggerConfig) (types.HaloLogger, error)
-	CreateFastLogger(config types.LoggerConfig) (types.HaloLogger, error)
-	CreateMinimalLogger(config types.LoggerConfig) (types.HaloLogger, error)
-	CreateOptimizedLogger(config types.LoggerConfig) (types.HaloLogger, error)
-	CreateHighPerformanceLogger(config types.LoggerConfig) (types.HaloLogger, error)
-	CreateZeroAllocationLogger(config types.LoggerConfig) (types.HaloLogger, error)
-	CreateFastHaloLogger(config types.LoggerConfig) (types.HaloLogger, error)
-
-	// Create the unified logger (production recommendation)
-	CreateLogger(config types.LoggerConfig) (types.HaloLogger, error)
-}
-
-// LoggerRegistry manages logger instances with lifecycle management
-type LoggerRegistry interface {
-	Register(name string, logger types.HaloLogger) error
-	Get(name string) (types.HaloLogger, bool)
-	Remove(name string) bool
-	List() []string
-	Clear()
-	// Health monitoring for registered loggers
-	HealthCheck() map[string]error
-}
-
 // LoggerConfig represents the single configuration for the logger
 // All configurations in one interface - no separation between basic and extended
+//
+//nolint:interfacebloat // Cohesive read-only view of one logger configuration value; the getters must stay together so the whole config can be treated as a single immutable snapshot.
 type LoggerConfig interface {
 	// Basic configuration
 	GetLevel() types.LogLevel

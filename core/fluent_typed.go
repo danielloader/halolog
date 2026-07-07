@@ -233,7 +233,7 @@ func (fb TypedFieldBuilder) dispatchTyped(level types.LogLevel, msg string) {
 
 	// Optimization: Discard adapter ignores entry, so skip construction entirely
 	if fb.logger.discardAdapter != nil {
-		fb.logger.discardAdapter.WriteZero(nil)
+		_ = fb.logger.discardAdapter.WriteZero(nil)
 		return
 	}
 
@@ -279,10 +279,10 @@ func (fb TypedFieldBuilder) dispatchPooled(level types.LogLevel, msg string) {
 	}
 
 	if len(fb.logger.adapters) == 1 {
-		fb.logger.adapters[0].WriteZero(entry)
+		_ = fb.logger.adapters[0].WriteZero(entry)
 	} else {
 		for _, a := range fb.logger.adapters {
-			a.WriteZero(entry)
+			_ = a.WriteZero(entry)
 		}
 	}
 

@@ -193,7 +193,7 @@ func TestFieldDictionary_ConcurrentAccessPerformance(t *testing.T) {
 	dict := NewFieldDictionary()
 
 	// Register some initial fields
-	dict.RegisterFromConfig([]string{"initial_field1", "initial_field2"}, nil)
+	_ = dict.RegisterFromConfig([]string{"initial_field1", "initial_field2"}, nil)
 
 	var wg sync.WaitGroup
 	numGoroutines := 10

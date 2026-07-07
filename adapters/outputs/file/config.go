@@ -64,7 +64,9 @@ func DefaultRotationConfig() *RotationConfig {
 	}
 }
 
-// FileConfig provides high-level configuration for file adapter
+// FileConfig provides high-level configuration for the file adapter.
+//
+//nolint:revive // exported name intentionally kept for a stable public API; renaming to Config would break importers
 type FileConfig struct {
 	Path       string
 	Rotation   *RotationConfig

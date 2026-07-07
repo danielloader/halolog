@@ -22,7 +22,9 @@ import (
 	"time"
 )
 
-// PipelineMetrics contains performance metrics for pipeline monitoring
+// PipelineMetrics contains performance metrics for pipeline monitoring.
+//
+//nolint:revive // Public API type; "Pipeline" prefix documents the metrics' scope and renaming would break consumers.
 type PipelineMetrics struct {
 	ProcessedCount int64
 	MaskedCount    int64
@@ -44,7 +46,9 @@ type PipelineMetrics struct {
 	BytesAllocated int64
 }
 
-// PipelineMetricsCollector collects and aggregates metrics across all pipelines
+// PipelineMetricsCollector collects and aggregates metrics across all pipelines.
+//
+//nolint:revive // Public API type; "Pipeline" prefix documents the collector's scope and renaming would break consumers.
 type PipelineMetricsCollector struct {
 	mu sync.RWMutex
 
@@ -243,7 +247,7 @@ type GlobalPipelineMetrics struct {
 	Uptime           time.Duration
 }
 
-// PerformanceReport generates a comprehensive performance report
+// GeneratePerformanceReport generates a comprehensive performance report
 func (c *PipelineMetricsCollector) GeneratePerformanceReport() PerformanceReport {
 	global := c.GetGlobalMetrics()
 	pipelines := c.GetAllPipelineMetrics()
@@ -271,15 +275,16 @@ func (c *PipelineMetricsCollector) calculatePerformanceGrade(metrics GlobalPipel
 	// Performance grading based on industry benchmarks
 	avgTime := metrics.AvgTime
 
-	if avgTime < 10 { // Sub-10ns: World-class
+	switch {
+	case avgTime < 10: // Sub-10ns: World-class
 		return "A+ (World Class)"
-	} else if avgTime < 20 { // Sub-20ns: Excellent
+	case avgTime < 20: // Sub-20ns: Excellent
 		return "A (Excellent)"
-	} else if avgTime < 50 { // Sub-50ns: Good
+	case avgTime < 50: // Sub-50ns: Good
 		return "B (Good)"
-	} else if avgTime < 100 { // Sub-100ns: Acceptable
+	case avgTime < 100: // Sub-100ns: Acceptable
 		return "C (Acceptable)"
-	} else { // >100ns: Needs improvement
+	default: // >100ns: Needs improvement
 		return "D (Needs Improvement)"
 	}
 }

@@ -149,12 +149,12 @@ func (p *ExtractedPool) getPID() int {
 	return int((sp >> 12) ^ (sp >> 20))
 }
 
-// SetPerPStateLevel sets the cached level for per-P state (exact logger implementation)
+// SetLevel sets the cached level for per-P state (exact logger implementation).
 func (state *ExtractedPerPState) SetLevel(level types.LogLevel) {
 	state.level = level
 }
 
-// SetPerPStateTimestamp sets the cached timestamp for per-P state (exact logger implementation)
+// SetTimestamp sets the cached timestamp for per-P state (exact logger implementation).
 func (state *ExtractedPerPState) SetTimestamp(timestamp int64) {
 	state.timestamp = timestamp
 }

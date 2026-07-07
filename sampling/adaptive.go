@@ -207,13 +207,14 @@ func (s *AdaptiveSampler) adjustRate(now time.Time) {
 
 	// Calculate new rate based on throughput vs target
 	var newRate float64
-	if currentThroughput <= 0 {
+	switch {
+	case currentThroughput <= 0:
 		newRate = s.config.MaxRate
-	} else if currentThroughput > float64(s.config.TargetThroughput) {
+	case currentThroughput > float64(s.config.TargetThroughput):
 		// Reduce rate proportionally to how much we're over target
 		ratio := float64(s.config.TargetThroughput) / currentThroughput
 		newRate = s.config.BaseRate * ratio
-	} else {
+	default:
 		// Under target, can increase towards base rate
 		ratio := currentThroughput / float64(s.config.TargetThroughput)
 		// Inverse: lower throughput = higher rate

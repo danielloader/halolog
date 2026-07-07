@@ -24,7 +24,9 @@ import (
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
-// SamplingStrategy defines how logs should be sampled
+// SamplingStrategy defines how logs should be sampled.
+//
+//nolint:revive // SamplingStrategy is stable public API; the sampling.Strategy rename would break importers.
 type SamplingStrategy int
 
 const (
@@ -36,7 +38,9 @@ const (
 	SampleByLevel
 )
 
-// SamplingConfig configures the sampling behavior
+// SamplingConfig configures the sampling behavior.
+//
+//nolint:revive // SamplingConfig is stable public API; the sampling.Config rename would break importers.
 type SamplingConfig struct {
 	Strategy            SamplingStrategy
 	SamplingDenominator int                    // For count-based: log every Nth message (N=1 means 100%, N=10 means 10%)
@@ -45,7 +49,9 @@ type SamplingConfig struct {
 	LevelSampling       map[types.LogLevel]int // Per-level sample denominators
 }
 
-// SamplingManager provides sampling logic and state management
+// SamplingManager provides sampling logic and state management.
+//
+//nolint:revive // SamplingManager is stable public API; the sampling.Manager rename would break importers.
 type SamplingManager struct {
 	config SamplingConfig
 

@@ -654,11 +654,11 @@ func TestLoadFromEnv(t *testing.T) {
 
 	// Restore original env vars after test
 	defer func() {
-		os.Setenv("APP_ENV", originalEnv)
-		os.Setenv("LOG_LEVEL", originalLevel)
-		os.Setenv("LOG_COLORIZED", originalColorized)
-		os.Setenv("LOG_PRETTY", originalPretty)
-		os.Setenv("LOG_DEBUG_BUFFER_SIZE", originalBufferSize)
+		_ = os.Setenv("APP_ENV", originalEnv)
+		_ = os.Setenv("LOG_LEVEL", originalLevel)
+		_ = os.Setenv("LOG_COLORIZED", originalColorized)
+		_ = os.Setenv("LOG_PRETTY", originalPretty)
+		_ = os.Setenv("LOG_DEBUG_BUFFER_SIZE", originalBufferSize)
 	}()
 
 	tests := []struct {
@@ -775,7 +775,7 @@ func TestLoadFromEnv(t *testing.T) {
 
 			// Set test env vars
 			for key, value := range tt.envVars {
-				os.Setenv(key, value)
+				_ = os.Setenv(key, value)
 			}
 
 			config := LoadFromEnv().Build()

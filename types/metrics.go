@@ -16,7 +16,9 @@
 
 package types
 
-// MetricsCollector interface for metrics collection
+// MetricsCollector interface for metrics collection.
+//
+//nolint:interfacebloat // Cohesive metrics-recording contract; each recorder maps to one tracked event.
 type MetricsCollector interface {
 	RecordLog(level LogLevel)
 	RecordError()

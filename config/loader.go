@@ -119,7 +119,11 @@ type LoggerConfig struct {
 	Appenders []AppenderConfig `yaml:"appenders" json:"appenders"`
 }
 
-// ConfigLoader handles loading configuration from various sources
+// ConfigLoader handles loading configuration from various sources.
+// It is established public API returned by NewConfigLoader and referenced across
+// the module and docs; renaming would break the public API.
+//
+//nolint:revive // intentional stutter retained to preserve the public API name.
 type ConfigLoader struct {
 	envPrefix string
 }

@@ -37,7 +37,9 @@ var (
 	ErrSyslogWrite    = errors.New("failed to write to syslog")
 )
 
-// SyslogAdapter implements the Adapter interface for syslog output
+// SyslogAdapter implements the Adapter interface for syslog output.
+//
+//nolint:revive // stable cross-platform public API name; renaming would break the windows build twin and callers
 type SyslogAdapter struct {
 	mu        sync.RWMutex
 	writer    *syslog.Writer
@@ -47,7 +49,9 @@ type SyslogAdapter struct {
 	lastError error // Store initialization errors
 }
 
-// SyslogAdapterOptions contains configuration options for SyslogAdapter
+// SyslogAdapterOptions contains configuration options for SyslogAdapter.
+//
+//nolint:revive // stable cross-platform public API name; renaming would break the windows build twin and callers
 type SyslogAdapterOptions struct {
 	Network   string // "", "tcp", "udp"
 	Address   string // "", "host:port"

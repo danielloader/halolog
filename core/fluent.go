@@ -144,7 +144,7 @@ func (fb FieldBuilder) Info(msg string) {
 		minimalEntry.StaticFields[0] = entry.StaticFields[0]
 
 		if fb.logger.discardAdapter != nil {
-			fb.logger.discardAdapter.WriteZero(nil)
+			_ = fb.logger.discardAdapter.WriteZero(nil)
 		} else {
 			fb.logger.writeMinimalEntry(&minimalEntry)
 		}
@@ -165,13 +165,14 @@ func (fb FieldBuilder) Info(msg string) {
 	}
 
 	// Direct adapter call
-	if fb.logger.discardAdapter != nil {
-		fb.logger.discardAdapter.WriteZero(nil)
-	} else if len(fb.logger.adapters) == 1 {
-		fb.logger.adapters[0].WriteZero(entry)
-	} else {
+	switch {
+	case fb.logger.discardAdapter != nil:
+		_ = fb.logger.discardAdapter.WriteZero(nil)
+	case len(fb.logger.adapters) == 1:
+		_ = fb.logger.adapters[0].WriteZero(entry)
+	default:
 		for _, a := range fb.logger.adapters {
-			a.WriteZero(entry)
+			_ = a.WriteZero(entry)
 		}
 	}
 
@@ -220,10 +221,10 @@ func (fb FieldBuilder) Debug(msg string) {
 	}
 
 	if len(fb.logger.adapters) == 1 {
-		fb.logger.adapters[0].WriteZero(entry)
+		_ = fb.logger.adapters[0].WriteZero(entry)
 	} else {
 		for _, a := range fb.logger.adapters {
-			a.WriteZero(entry)
+			_ = a.WriteZero(entry)
 		}
 	}
 
@@ -270,10 +271,10 @@ func (fb FieldBuilder) Warn(msg string) {
 	}
 
 	if len(fb.logger.adapters) == 1 {
-		fb.logger.adapters[0].WriteZero(entry)
+		_ = fb.logger.adapters[0].WriteZero(entry)
 	} else {
 		for _, a := range fb.logger.adapters {
-			a.WriteZero(entry)
+			_ = a.WriteZero(entry)
 		}
 	}
 
@@ -320,10 +321,10 @@ func (fb FieldBuilder) Error(msg string) {
 	}
 
 	if len(fb.logger.adapters) == 1 {
-		fb.logger.adapters[0].WriteZero(entry)
+		_ = fb.logger.adapters[0].WriteZero(entry)
 	} else {
 		for _, a := range fb.logger.adapters {
-			a.WriteZero(entry)
+			_ = a.WriteZero(entry)
 		}
 	}
 
@@ -355,10 +356,10 @@ func (fb FieldBuilder) Trace(msg string) {
 	}
 
 	if len(fb.logger.adapters) == 1 {
-		fb.logger.adapters[0].WriteZero(entry)
+		_ = fb.logger.adapters[0].WriteZero(entry)
 	} else {
 		for _, a := range fb.logger.adapters {
-			a.WriteZero(entry)
+			_ = a.WriteZero(entry)
 		}
 	}
 
@@ -386,10 +387,10 @@ func (fb FieldBuilder) Fatal(msg string) {
 	}
 
 	if len(fb.logger.adapters) == 1 {
-		fb.logger.adapters[0].WriteZero(entry)
+		_ = fb.logger.adapters[0].WriteZero(entry)
 	} else {
 		for _, a := range fb.logger.adapters {
-			a.WriteZero(entry)
+			_ = a.WriteZero(entry)
 		}
 	}
 
@@ -417,10 +418,10 @@ func (fb FieldBuilder) Panic(msg string) {
 	}
 
 	if len(fb.logger.adapters) == 1 {
-		fb.logger.adapters[0].WriteZero(entry)
+		_ = fb.logger.adapters[0].WriteZero(entry)
 	} else {
 		for _, a := range fb.logger.adapters {
-			a.WriteZero(entry)
+			_ = a.WriteZero(entry)
 		}
 	}
 

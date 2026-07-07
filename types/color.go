@@ -19,8 +19,7 @@ package types
 // Color represents color codes for terminal output
 type Color int
 
-// Color represents ANSI color codes
-
+// ANSI color codes for terminal output.
 const (
 	ColorReset Color = iota
 	ColorBlack

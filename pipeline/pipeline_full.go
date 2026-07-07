@@ -127,7 +127,7 @@ func (p *FullPipeline) Write(clock *clock.CachedClock, level types.LogLevel, msg
 		}
 		// Add fields for sampling decision
 		if fieldCount > 0 && fieldCount <= 32 {
-			copy(sampleEntry.StaticFields[:], fields[:fieldCount])
+			copy(sampleEntry.StaticFields, fields[:fieldCount])
 			sampleEntry.StaticFieldCount = fieldCount
 		}
 	}

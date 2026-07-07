@@ -66,16 +66,20 @@ var levelCache = [7]string{
 	`,"level":"PANIC"`,
 }
 
-type JSONFormatter struct {
+// Formatter is a zero-allocation formatter that renders log entries as JSON.
+type Formatter struct {
 	_ [64]byte // Padding
 }
 
-func NewJsonFormatter() *JSONFormatter {
-	return &JSONFormatter{}
+// NewJsonFormatter creates a new JSON formatter.
+func NewJsonFormatter() *Formatter {
+	return &Formatter{}
 }
 
+// Format appends the JSON encoding of entry to dst and returns the extended slice.
+//
 //go:noinline
-func (f *JSONFormatter) Format(entry *types.LogEntry, dst []byte) []byte {
+func (f *Formatter) Format(entry *types.LogEntry, dst []byte) []byte {
 	if entry == nil {
 		return dst
 	}
@@ -144,7 +148,7 @@ func slowAppendTime(dst []byte, unixSec int64) []byte {
 }
 
 // FIXED: Cross-platform basename
-func (f *JSONFormatter) formatCaller(dst []byte, entry *types.LogEntry) []byte {
+func (f *Formatter) formatCaller(dst []byte, entry *types.LogEntry) []byte {
 	dst = append(dst, `,"caller":"`...)
 
 	file := entry.File
@@ -161,7 +165,7 @@ func (f *JSONFormatter) formatCaller(dst []byte, entry *types.LogEntry) []byte {
 	return append(dst, '"')
 }
 
-func (f *JSONFormatter) formatFields(dst []byte, entry *types.LogEntry) []byte {
+func (f *Formatter) formatFields(dst []byte, entry *types.LogEntry) []byte {
 	for _, field := range entry.Fields {
 		dst = append(dst, ',', '"')
 		dst = append(dst, field.Key...)
@@ -267,11 +271,11 @@ func appendInt(dst []byte, i int64) []byte {
 }
 
 // EstimatedSize returns an estimated buffer size for pre-allocation
-func (f *JSONFormatter) EstimatedSize() int {
+func (f *Formatter) EstimatedSize() int {
 	return 4096 // Default 4KB buffer size
 }
 
 // Reset resets any internal state (for pooling)
-func (f *JSONFormatter) Reset() {
+func (f *Formatter) Reset() {
 	// Stateless formatter - no-op
 }

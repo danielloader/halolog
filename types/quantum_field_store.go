@@ -23,7 +23,7 @@ import (
 	"sync/atomic"
 )
 
-// QuantumFieldStore provides unlimited field storage with chunk-based O(1) access
+// EnhancedQuantumFieldStore provides unlimited field storage with chunk-based O(1) access
 type EnhancedQuantumFieldStore struct {
 	keys         [][]string      // Dynamic chunks of keys
 	values       [][]string      // Dynamic chunks of values
@@ -37,7 +37,7 @@ type EnhancedQuantumFieldStore struct {
 	fastPath atomic.Bool // Indicates if fast path is available
 }
 
-// Legacy QuantumFieldStore for backward compatibility
+// QuantumFieldStore is the legacy field store kept for backward compatibility.
 type QuantumFieldStore struct {
 	keys    []string       // Pre-allocated key array
 	values  []string       // Pre-allocated value array
@@ -46,8 +46,8 @@ type QuantumFieldStore struct {
 	keyMap  map[string]int // O(1) key to index mapping
 }
 
-// NewQuantumFieldStore creates a new quantum field store with unlimited capacity
-// Note: dictionary should be set separately using dependency injection
+// NewEnhancedQuantumFieldStore creates a new quantum field store with unlimited capacity.
+// Note: dictionary should be set separately using dependency injection.
 func NewEnhancedQuantumFieldStore(chunkSize int) *EnhancedQuantumFieldStore {
 	if chunkSize <= 0 {
 		chunkSize = 64 // Default chunk size
@@ -59,7 +59,7 @@ func NewEnhancedQuantumFieldStore(chunkSize int) *EnhancedQuantumFieldStore {
 	}
 }
 
-// NewQuantumFieldStoreWithDict creates a new quantum field store with custom dictionary
+// NewEnhancedQuantumFieldStoreWithDict creates a new quantum field store with a custom dictionary.
 func NewEnhancedQuantumFieldStoreWithDict(chunkSize int, dictionary FieldDictionary) *EnhancedQuantumFieldStore {
 	if chunkSize <= 0 {
 		chunkSize = 64 // Default chunk size

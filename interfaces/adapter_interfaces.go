@@ -17,8 +17,9 @@
 package interfaces
 
 import (
-	"github.com/go-gen-ecosystem/halolog/types"
 	"io"
+
+	"github.com/go-gen-ecosystem/halolog/types"
 )
 
 // AdapterFactory creates adapter instances

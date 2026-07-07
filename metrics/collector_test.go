@@ -183,10 +183,8 @@ func TestMemoryMetrics(t *testing.T) {
 	if snapshot.MemoryUsage.NumGoroutine < 1 {
 		t.Error("Expected at least 1 goroutine")
 	}
-
-	if snapshot.MemoryUsage.NumGC < 0 {
-		t.Error("GC count should not be negative")
-	}
+	// NumGC is a uint32 and therefore cannot be negative; a sanity check on it
+	// is unnecessary. Its presence is already validated by MemoryUsage != nil.
 }
 
 func TestServeHTTP(t *testing.T) {

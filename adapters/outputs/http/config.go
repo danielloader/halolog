@@ -22,7 +22,9 @@ import (
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
-// HTTPAdapterConfig represents configuration for HTTP adapter
+// HTTPAdapterConfig represents configuration for HTTP adapter.
+//
+//nolint:revive // HTTP prefix is the intended public API name; renaming would break callers across the module.
 type HTTPAdapterConfig struct {
 	URL                string
 	Method             string

@@ -21,8 +21,10 @@ import (
 	"time"
 )
 
-// CoreLogger defines the interface for the core logger implementation
-// This interface provides the complete API surface for logging operations
+// CoreLogger defines the interface for the core logger implementation.
+// This interface provides the complete API surface for logging operations.
+//
+//nolint:interfacebloat // Complete hot-path logging API surface; splitting would fragment the public contract.
 type CoreLogger interface {
 	// Core logging methods
 	Trace(msg string) CoreLogger
@@ -145,7 +147,9 @@ type EnvironmentDetector interface {
 	IsTesting() bool
 }
 
-// PIIMasker interface for PII masking operations
+// PIIMasker interface for PII masking operations.
+//
+//nolint:interfacebloat // Cohesive masking contract: apply + field/string masking + rule/pattern management.
 type PIIMasker interface {
 	Apply(entry *LogEntry)
 	MaskField(field *TypedFieldData) *TypedFieldData
@@ -181,6 +185,3 @@ type Sampler interface {
 
 // OutputOption configures output behavior (function type)
 type OutputOption func(interface{})
-
-// LoggerOption configures logger behavior (function type)
-type LoggerOption func(*HaloLogger)

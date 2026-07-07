@@ -80,20 +80,22 @@ func updateTimeCache(t time.Time) {
 
 // --- The Formatter ---
 
-type TextFormatter struct {
+// Formatter is a zero-allocation formatter that renders log entries as human-readable text.
+type Formatter struct {
 	// Padding prevents False Sharing (Cache Line thrashing)
 	// Ensures this struct sits on its own cache line in the heap
 	_ [64]byte
 }
 
-func NewTextFormatter() *TextFormatter {
-	return &TextFormatter{}
+// NewTextFormatter creates a new text formatter.
+func NewTextFormatter() *Formatter {
+	return &Formatter{}
 }
 
 // Format - Optimized for direct-to-destination writing
 //
 //go:noinline
-func (f *TextFormatter) Format(entry *types.LogEntry, dst []byte) []byte {
+func (f *Formatter) Format(entry *types.LogEntry, dst []byte) []byte {
 	// 1. Fast Nil Check
 	if entry == nil {
 		return dst
@@ -145,7 +147,7 @@ func (f *TextFormatter) Format(entry *types.LogEntry, dst []byte) []byte {
 // appendCaller - Extracted to keep Format small (I-Cache friendly)
 //
 //go:inline
-func (f *TextFormatter) appendCaller(dst []byte, file string, line int) []byte {
+func (f *Formatter) appendCaller(dst []byte, file string, line int) []byte {
 	dst = append(dst, " ["...)
 
 	// Fast Basename Extraction (No allocation)
@@ -172,17 +174,19 @@ func (f *TextFormatter) appendCaller(dst []byte, file string, line int) []byte {
 
 // --- Metrics & Control (Optional) ---
 
+// Metrics is a stub retained for API compatibility.
 type Metrics struct{} // Stub for API compatibility
 
-func (f *TextFormatter) CopyMetrics(m *Metrics) {}
+// CopyMetrics copies formatter metrics into m. It is a no-op stub retained for API compatibility.
+func (f *Formatter) CopyMetrics(m *Metrics) {}
 
 // EstimatedSize returns an estimated buffer size for pre-allocation
-func (f *TextFormatter) EstimatedSize() int {
+func (f *Formatter) EstimatedSize() int {
 	return 2048 // Default 2KB buffer size for text formatter
 }
 
 // Reset resets any internal state (for pooling)
-func (f *TextFormatter) Reset() {
+func (f *Formatter) Reset() {
 	// Stateless formatter - no-op
 }
 
@@ -193,4 +197,6 @@ type atomicUint64 struct{ value uint64 }
 
 func (a *atomicUint64) Load() uint64   { return atomic.LoadUint64(&a.value) }
 func (a *atomicUint64) Store(v uint64) { atomic.StoreUint64(&a.value, v) }
-func SetGlobalLevel(level uint8)       { globalLevel.Store(uint64(level)) }
+
+// SetGlobalLevel sets the global minimum log level used by the zero-cost disabled path.
+func SetGlobalLevel(level uint8) { globalLevel.Store(uint64(level)) }

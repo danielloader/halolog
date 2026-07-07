@@ -20,7 +20,6 @@
 package json
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -51,15 +50,15 @@ func BenchmarkDemoOutput(b *testing.B) {
 
 	// Show output before benchmark
 	result := formatter.Format(entry, dst)
-	fmt.Printf("Sample Output (%d bytes):\n", len(result))
-	fmt.Printf("%s\n\n", string(result))
+	b.Logf("Sample Output (%d bytes):", len(result))
+	b.Logf("%s", string(result))
 
 	// Performance analysis
-	fmt.Printf("Performance Breakdown:\n")
-	fmt.Printf("- Message length: %d bytes\n", len(entry.Message))
-	fmt.Printf("- Fields count: %d\n", len(entry.Fields))
-	fmt.Printf("- Total output: %d bytes\n", len(result))
-	fmt.Printf("- Throughput: ~%.1f MB/s (based on 37.25 ns/op)\n\n", float64(len(result))/37.25*1000)
+	b.Logf("Performance Breakdown:")
+	b.Logf("- Message length: %d bytes", len(entry.Message))
+	b.Logf("- Fields count: %d", len(entry.Fields))
+	b.Logf("- Total output: %d bytes", len(result))
+	b.Logf("- Throughput: ~%.1f MB/s (based on 37.25 ns/op)", float64(len(result))/37.25*1000)
 
 	b.ResetTimer()
 	b.ReportAllocs()

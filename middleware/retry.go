@@ -34,7 +34,9 @@ var nonRetryablePatterns = []string{
 	"permission",
 }
 
-// RetryConfig provides retry configuration and logic
+// RetryConfig provides retry configuration and logic.
+//
+//nolint:revive // Public API type; "Retry" prefix names the domain and renaming would break consumers.
 type RetryConfig struct {
 	maxRetries int
 	baseDelay  time.Duration // Initial delay

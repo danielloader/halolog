@@ -148,8 +148,8 @@ func TestConfigLoader_LoadFromJSON_WithTempDir(t *testing.T) {
 
 	// Create temp directory in user temp folder
 	tempDir := filepath.Join(os.TempDir(), "halolog-test-json")
-	os.MkdirAll(tempDir, 0755)
-	defer os.RemoveAll(tempDir)
+	_ = os.MkdirAll(tempDir, 0755)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	jsonContent := `{
 		"loggers": [
@@ -309,8 +309,8 @@ func TestConfigLoader_LoadFromFile(t *testing.T) {
 
 	// Create temp directory in user temp folder
 	tempDir := filepath.Join(os.TempDir(), "halolog-test-auto")
-	os.MkdirAll(tempDir, 0755)
-	defer os.RemoveAll(tempDir)
+	_ = os.MkdirAll(tempDir, 0755)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Test YAML file
 	yamlContent := `

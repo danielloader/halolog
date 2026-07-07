@@ -230,6 +230,7 @@ func FormatIntWithPrefix(prefix string, value int) string {
 	return prefix + strconv.Itoa(value)
 }
 
+// FormatStringWithSuffix concatenates value and suffix into a newly allocated string.
 func FormatStringWithSuffix(value, suffix string) string {
 	buf := make([]byte, 0, len(value)+len(suffix))
 	buf = append(buf, value...)
@@ -237,6 +238,7 @@ func FormatStringWithSuffix(value, suffix string) string {
 	return string(buf)
 }
 
+// AppendStringWithSufix appends value followed by suffix to buf and returns the extended slice.
 func AppendStringWithSufix(buf []byte, value string, suffix string) []byte {
 	buf = append(buf, value...)
 	buf = append(buf, suffix...)
@@ -695,6 +697,7 @@ func FormatError(code int, message string) string {
 	return sb.String()
 }
 
+// FormatErrorMsg formats message and, when err is non-nil, appends ": " and the error text.
 func FormatErrorMsg(message string, err error) string {
 	sb := AcquireStringBuilder()
 	defer ReleaseStringBuilder(sb)
@@ -913,8 +916,9 @@ func GetMetrics() StringHelperMetrics {
 // FormatIntString is deprecated. Use FormatInt instead.
 func FormatIntString(value int) string { return FormatInt(value) }
 
+// FormatIntAndText builds "prefix<sep>num<sep>text" as a newly allocated string.
 func FormatIntAndText(prefix string, sep byte, num int, text string) string {
-	// Pre-sizing evita realocação interna
+	// Pre-sizing avoids internal reallocation.
 	buf := make([]byte, 0, len(prefix)+1+10+1+len(text))
 
 	buf = append(buf, prefix...)
@@ -929,6 +933,7 @@ func FormatIntAndText(prefix string, sep byte, num int, text string) string {
 // AppendIntString is deprecated. Use AppendInt instead.
 func AppendIntString(buf []byte, value int) []byte { return AppendInt(buf, value) }
 
+// AppendIntAndText appends "prefix<sep>num<sep>text" to buf and returns the extended slice.
 func AppendIntAndText(buf []byte, prefix string, sep byte, num int, text string) []byte {
 	buf = append(buf, prefix...)
 	buf = append(buf, sep)

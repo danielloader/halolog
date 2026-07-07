@@ -55,7 +55,7 @@ type WorkerPool struct {
 	writer atomic.Pointer[func(*types.LogEntry)]
 }
 
-// initWorkerPools creates pre-allocated worker pools for common worker counts.
+// InitWorkerPools creates pre-allocated worker pools for common worker counts.
 // This eliminates allocations in EnableAsync by reusing pre-created pools.
 func InitWorkerPools() {
 	preallocOnce.Do(func() {
@@ -75,14 +75,14 @@ func InitWorkerPools() {
 	})
 }
 
-// getPreallocatedPool returns a pre-allocated pool for the worker count if available.
+// GetPreallocatedPool returns a pre-allocated pool for the worker count if available.
 // This provides zero-allocation pool retrieval for common worker counts.
 func GetPreallocatedPool(workerCount int) *WorkerPool {
 	InitWorkerPools()
 	return preallocatedPools[workerCount]
 }
 
-// shutdownAllWorkerPools gracefully shuts down all active and pre-allocated worker pools.
+// CloseAllWorkerPools gracefully shuts down all active and pre-allocated worker pools.
 // This is used primarily in tests to ensure clean shutdown and prevent goroutine leaks.
 // Safe to call multiple times.
 func CloseAllWorkerPools() {
@@ -111,7 +111,7 @@ func CloseAllWorkerPools() {
 	preallocOnce = sync.Once{}
 }
 
-// getActiveWorkerPool returns an existing active pool for the worker count or creates a new one.
+// GetActiveWorkerPool returns an existing active pool for the worker count or creates a new one.
 // This eliminates allocations by avoiding duplicate pool creation for the same worker count.
 func GetActiveWorkerPool(workerCount int) *WorkerPool {
 	if workerCount <= 0 {
@@ -145,7 +145,7 @@ func GetActiveWorkerPool(workerCount int) *WorkerPool {
 	return wp
 }
 
-// stopActiveWorkerPool stops and removes a worker pool from the active tracking.
+// StopActiveWorkerPool stops and removes a worker pool from the active tracking.
 // This is called when we want to disable async logging.
 func StopActiveWorkerPool(workerCount int) {
 	poolsMu.Lock()
@@ -178,13 +178,13 @@ func newWorkerPool(workerCount int) *WorkerPool {
 	return wp
 }
 
-// setWriter injects the writer function for processing entries.
+// SetWriter injects the writer function for processing entries.
 // Must be called before submitting entries. Thread-safe.
 func (wp *WorkerPool) SetWriter(w func(*types.LogEntry)) {
 	wp.writer.Store(&w)
 }
 
-// getWriter returns the current writer function. Thread-safe.
+// GetWriter returns the current writer function. Thread-safe.
 func (wp *WorkerPool) GetWriter() func(*types.LogEntry) {
 	ptr := wp.writer.Load()
 	if ptr == nil {
@@ -241,7 +241,7 @@ func (wp *WorkerPool) drain() {
 	}
 }
 
-// submit attempts non-blocking entry submission.
+// Submit attempts non-blocking entry submission.
 // Returns true if submitted, false if pool is stopped or buffer full.
 // The caller is responsible for fallback handling on false return.
 func (wp *WorkerPool) Submit(entry *types.LogEntry) bool {
@@ -265,7 +265,7 @@ func (wp *WorkerPool) Submit(entry *types.LogEntry) bool {
 	}
 }
 
-// stop gracefully shuts down the pool.
+// Close gracefully shuts down the pool.
 // Blocks until all workers have finished processing remaining entries.
 // Safe to call multiple times.
 func (wp *WorkerPool) Close() {
@@ -287,7 +287,7 @@ func (wp *WorkerPool) Close() {
 
 // Metrics methods for observability
 
-// getBufferUsage returns current buffer utilization (0.0-1.0).
+// GetBufferUsage returns current buffer utilization (0.0-1.0).
 func (wp *WorkerPool) GetBufferUsage() float64 {
 	if wp.taskCh == nil {
 		return 0
@@ -295,7 +295,7 @@ func (wp *WorkerPool) GetBufferUsage() float64 {
 	return float64(len(wp.taskCh)) / float64(cap(wp.taskCh))
 }
 
-// getBufferSize returns the buffer capacity.
+// GetBufferSize returns the buffer capacity.
 func (wp *WorkerPool) GetBufferSize() int {
 	if wp.taskCh == nil {
 		return 0
@@ -303,7 +303,7 @@ func (wp *WorkerPool) GetBufferSize() int {
 	return cap(wp.taskCh)
 }
 
-// getBufferCurrent returns the current number of items in buffer.
+// GetBufferCurrent returns the current number of items in buffer.
 func (wp *WorkerPool) GetBufferCurrent() int {
 	if wp.taskCh == nil {
 		return 0

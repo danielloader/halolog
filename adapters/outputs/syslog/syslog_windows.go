@@ -29,12 +29,17 @@ var (
 	ErrSyslogNotSupported = errors.New("syslog is not supported on Windows")
 )
 
-// SyslogAdapter stub for Windows - returns error on any operation
+// SyslogAdapter stub for Windows - returns error on any operation.
+// Name kept stable across the unix/windows build pair and existing call sites.
+//
+//nolint:revive // stable cross-platform public API name; renaming would break the unix build twin and callers
 type SyslogAdapter struct {
 	tag string
 }
 
-// SyslogAdapterOptions stub for Windows
+// SyslogAdapterOptions stub for Windows.
+//
+//nolint:revive // stable cross-platform public API name; renaming would break the unix build twin and callers
 type SyslogAdapterOptions struct {
 	Network   string
 	Address   string

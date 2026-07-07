@@ -91,7 +91,7 @@ func TestAsyncAdapter_BasicUsage(t *testing.T) {
 	}
 
 	// Give async adapter time to process
-	adapter.Flush()
+	_ = adapter.Flush()
 
 	if mock.writeCalls != 1 {
 		t.Errorf("Expected 1 write call, got %d", mock.writeCalls)
@@ -145,7 +145,7 @@ func TestAsyncAdapter_Write(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: 10 * time.Millisecond,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Test writing a single entry
 	entry := &types.LogEntry{
@@ -171,7 +171,7 @@ func TestAsyncAdapter_Write(t *testing.T) {
 func TestAsyncAdapter_WriteNilEntry(t *testing.T) {
 	mock := &asyncMockAdapter{name: "test"}
 	adapter := NewAsyncAdapter(mock, nil)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	err := adapter.Write(nil)
 	if err == nil {
@@ -189,7 +189,7 @@ func TestAsyncAdapter_MultipleWrites(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: 10 * time.Millisecond,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Write multiple entries
 	for i := 0; i < 10; i++ {
@@ -219,7 +219,7 @@ func TestAsyncAdapter_Flush_Comprehensive(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: 10 * time.Millisecond,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Write some entries
 	for i := 0; i < 5; i++ {
@@ -228,7 +228,7 @@ func TestAsyncAdapter_Flush_Comprehensive(t *testing.T) {
 			Message:   utils.FormatIntWithPrefix("Flush test", i),
 			Timestamp: time.Now(),
 		}
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
 	// Flush should wait for all entries to be processed
@@ -245,7 +245,7 @@ func TestAsyncAdapter_Flush_Comprehensive(t *testing.T) {
 func TestAsyncAdapter_FlushEmpty(t *testing.T) {
 	mock := &asyncMockAdapter{name: "test"}
 	adapter := NewAsyncAdapter(mock, nil)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Flush with no entries should not error
 	err := adapter.Flush()
@@ -269,7 +269,7 @@ func TestAsyncAdapter_Close_Comprehensive(t *testing.T) {
 			Message:   utils.FormatIntWithPrefix("Close test", i),
 			Timestamp: time.Now(),
 		}
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
 	// Close should process remaining entries and shut down cleanly
@@ -299,7 +299,7 @@ func TestAsyncAdapter_BackgroundWriter(t *testing.T) {
 		BatchSize:     3,
 		FlushInterval: 10 * time.Millisecond,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Write exactly batch size entries
 	for i := 0; i < 3; i++ {
@@ -308,7 +308,7 @@ func TestAsyncAdapter_BackgroundWriter(t *testing.T) {
 			Message:   utils.FormatIntWithPrefix("Batch test", i),
 			Timestamp: time.Now(),
 		}
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
 	// Give background writer time to process
@@ -327,7 +327,7 @@ func TestAsyncAdapter_FlushBatch(t *testing.T) {
 	adapter := NewAsyncAdapter(mock, &AsyncAdapterOptions{
 		BatchSize: 5,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Write less than batch size entries
 	for i := 0; i < 3; i++ {
@@ -336,7 +336,7 @@ func TestAsyncAdapter_FlushBatch(t *testing.T) {
 			Message:   utils.FormatIntWithPrefix("Partial batch", i),
 			Timestamp: time.Now(),
 		}
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
 	// Give some time for entries to be processed
@@ -360,7 +360,7 @@ func TestAsyncAdapter_WriteError(t *testing.T) {
 		BatchSize:     1, // Force immediate batch processing
 		FlushInterval: 10 * time.Millisecond,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	entry := &types.LogEntry{
 		Level:     types.InfoLevel,
@@ -393,7 +393,7 @@ func TestAsyncAdapter_ConcurrentWrites(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: 10 * time.Millisecond,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	var wg sync.WaitGroup
 	numGoroutines := 10
@@ -410,7 +410,7 @@ func TestAsyncAdapter_ConcurrentWrites(t *testing.T) {
 					Message:   utils.FormatTwoIntsSimple("Concurrent", id, '-', j, ""),
 					Timestamp: time.Now(),
 				}
-				adapter.Write(entry)
+				_ = adapter.Write(entry)
 			}
 		}(i)
 	}
@@ -422,7 +422,7 @@ func TestAsyncAdapter_ConcurrentWrites(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Flush to ensure all entries are processed
-	adapter.Flush()
+	_ = adapter.Flush()
 
 	expectedWrites := numGoroutines * writesPerGoroutine
 	if mock.writeCalls != expectedWrites {
@@ -439,7 +439,7 @@ func TestAsyncAdapter_BufferFull(t *testing.T) {
 		BatchSize:     5,
 		FlushInterval: 10 * time.Millisecond,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Write many entries quickly to test buffer handling
 	for i := 0; i < 20; i++ {
@@ -448,14 +448,14 @@ func TestAsyncAdapter_BufferFull(t *testing.T) {
 			Message:   utils.FormatIntWithPrefix("Buffer test", i),
 			Timestamp: time.Now(),
 		}
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
 	// Give background writer time to process
 	time.Sleep(50 * time.Millisecond)
 
 	// Flush to ensure all entries are processed
-	adapter.Flush()
+	_ = adapter.Flush()
 
 	if mock.writeCalls != 20 {
 		t.Errorf("Expected 20 write calls, got %d", mock.writeCalls)
@@ -504,7 +504,7 @@ func BenchmarkAsyncAdapter_Info_HelloWorld(b *testing.B) {
 		BatchSize:     100,
 		FlushInterval: 10 * time.Millisecond,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	entry := &types.LogEntry{
 		Timestamp: time.Now(),
@@ -519,11 +519,11 @@ func BenchmarkAsyncAdapter_Info_HelloWorld(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		entry.Timestamp = time.Now()
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
 	// Ensure all entries are processed
-	adapter.Flush()
+	_ = adapter.Flush()
 }
 
 // BenchmarkAsyncAdapter_WithField_Info_HelloWorld benchmarks info message with field
@@ -534,7 +534,7 @@ func BenchmarkAsyncAdapter_WithField_Info_HelloWorld(b *testing.B) {
 		BatchSize:     100,
 		FlushInterval: 10 * time.Millisecond,
 	})
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	entry := &types.LogEntry{
 		Timestamp: time.Now(),
@@ -552,9 +552,9 @@ func BenchmarkAsyncAdapter_WithField_Info_HelloWorld(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		entry.Timestamp = time.Now()
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
 	// Ensure all entries are processed
-	adapter.Flush()
+	_ = adapter.Flush()
 }

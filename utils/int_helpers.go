@@ -15,21 +15,3 @@
 // Author: Admilson B. F. Cossa
 
 package utils
-
-import "strconv"
-
-func appendIntAny(buf []byte, v interface{}) []byte {
-	switch x := v.(type) {
-	case int:
-		return strconv.AppendInt(buf, int64(x), 10)
-	case int8:
-		return strconv.AppendInt(buf, int64(x), 10)
-	case int16:
-		return strconv.AppendInt(buf, int64(x), 10)
-	case int32:
-		return strconv.AppendInt(buf, int64(x), 10)
-	case int64:
-		return strconv.AppendInt(buf, x, 10)
-	}
-	return buf
-}

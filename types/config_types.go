@@ -58,22 +58,50 @@ type LoggerConfig struct {
 	RetryInterval       time.Duration
 }
 
-// Interface implementation for LoggerConfig
-func (c *LoggerConfig) GetLevel() LogLevel             { return c.Level }
-func (c *LoggerConfig) GetOutputs() []Output           { return nil } // TODO: Convert OutputConfig to LogOutput
-func (c *LoggerConfig) GetHooks() []LogHook            { return nil } // TODO: Add hooks support
-func (c *LoggerConfig) GetSamplingRate() float64       { return c.SamplingRate }
-func (c *LoggerConfig) GetBufferSize() int             { return c.BufferSize }
-func (c *LoggerConfig) GetFlushInterval() int64        { return int64(c.FlushInterval) }
-func (c *LoggerConfig) GetBatchSize() int              { return 100 }  // Default batch size
-func (c *LoggerConfig) GetBatchTimeout() int64         { return 1000 } // Default 1 second
-func (c *LoggerConfig) IsFastPathEnabled() bool        { return c.FastPathEnabled }
-func (c *LoggerConfig) GetFieldPoolSize() int          { return 1024 } // Default pool size
-func (c *LoggerConfig) GetStaticFieldCount() int       { return c.MaxFieldsPerLog }
+// GetLevel returns the configured minimum log level.
+func (c *LoggerConfig) GetLevel() LogLevel { return c.Level }
+
+// GetOutputs returns the configured outputs.
+func (c *LoggerConfig) GetOutputs() []Output { return nil } // TODO: Convert OutputConfig to LogOutput
+
+// GetHooks returns the configured log hooks.
+func (c *LoggerConfig) GetHooks() []LogHook { return nil } // TODO: Add hooks support
+
+// GetSamplingRate returns the configured sampling rate.
+func (c *LoggerConfig) GetSamplingRate() float64 { return c.SamplingRate }
+
+// GetBufferSize returns the configured buffer size.
+func (c *LoggerConfig) GetBufferSize() int { return c.BufferSize }
+
+// GetFlushInterval returns the configured flush interval in nanoseconds.
+func (c *LoggerConfig) GetFlushInterval() int64 { return int64(c.FlushInterval) }
+
+// GetBatchSize returns the configured batch size.
+func (c *LoggerConfig) GetBatchSize() int { return 100 } // Default batch size
+
+// GetBatchTimeout returns the configured batch timeout in milliseconds.
+func (c *LoggerConfig) GetBatchTimeout() int64 { return 1000 } // Default 1 second
+
+// IsFastPathEnabled reports whether the fast path is enabled.
+func (c *LoggerConfig) IsFastPathEnabled() bool { return c.FastPathEnabled }
+
+// GetFieldPoolSize returns the configured field pool size.
+func (c *LoggerConfig) GetFieldPoolSize() int { return 1024 } // Default pool size
+
+// GetStaticFieldCount returns the configured maximum static field count.
+func (c *LoggerConfig) GetStaticFieldCount() int { return c.MaxFieldsPerLog }
+
+// GetMaskingRules returns the configured masking rules.
 func (c *LoggerConfig) GetMaskingRules() []MaskingRule { return c.MaskingRules }
-func (c *LoggerConfig) IsAutoMaskEnabled() bool        { return c.AutoMaskEnabled }
-func (c *LoggerConfig) IsMetricsEnabled() bool         { return c.MetricsEnabled }
-func (c *LoggerConfig) GetHealthCheckInterval() int64  { return int64(c.HealthCheckInterval) }
+
+// IsAutoMaskEnabled reports whether automatic masking is enabled.
+func (c *LoggerConfig) IsAutoMaskEnabled() bool { return c.AutoMaskEnabled }
+
+// IsMetricsEnabled reports whether metrics collection is enabled.
+func (c *LoggerConfig) IsMetricsEnabled() bool { return c.MetricsEnabled }
+
+// GetHealthCheckInterval returns the configured health check interval in nanoseconds.
+func (c *LoggerConfig) GetHealthCheckInterval() int64 { return int64(c.HealthCheckInterval) }
 
 // OutputConfig represents an output destination configuration
 type OutputConfig struct {

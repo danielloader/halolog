@@ -64,25 +64,14 @@ type Logger struct {
 	discardAdapter *discard.Adapter // Concrete type for zero-allocation
 
 	// Optional features (nil if not configured)
-	sampler  types.Sampler
-	features *featureManager
-	metrics  *metricsCollector
-}
-
-// featureManager handles optional advanced features.
-type featureManager struct {
-	sampling    types.Sampler
-	alerts      *alertManager
-	aggregation *aggregationManager
+	sampler types.Sampler
+	metrics *metricsCollector
 }
 
 // metricsCollector tracks logging metrics.
 type metricsCollector struct {
 	counts [8]atomic.Int64
 }
-
-type alertManager struct{}
-type aggregationManager struct{}
 
 // Config holds logger configuration.
 type Config struct {
@@ -347,7 +336,7 @@ func (l *Logger) realTraceDiscard(_ *Logger, msg string) {
 	entry.Component = l.component
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
-	l.discardAdapter.WriteZero(&entry)
+	_ = l.discardAdapter.WriteZero(&entry)
 }
 
 //go:inline
@@ -358,13 +347,13 @@ func (l *Logger) realDebugDiscard(_ *Logger, msg string) {
 	entry.Component = l.component
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
-	l.discardAdapter.WriteZero(&entry)
+	_ = l.discardAdapter.WriteZero(&entry)
 }
 
 //go:inline
 func (l *Logger) realInfoDiscard(_ *Logger, msg string) {
 	// Optimization: Discard adapter ignores entry, so pass nil to avoid allocation/zeroing
-	l.discardAdapter.WriteZero(nil)
+	_ = l.discardAdapter.WriteZero(nil)
 }
 
 //go:inline
@@ -375,7 +364,7 @@ func (l *Logger) realWarnDiscard(_ *Logger, msg string) {
 	entry.Component = l.component
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
-	l.discardAdapter.WriteZero(&entry)
+	_ = l.discardAdapter.WriteZero(&entry)
 }
 
 //go:inline
@@ -386,7 +375,7 @@ func (l *Logger) realErrorDiscard(_ *Logger, msg string) {
 	entry.Component = l.component
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
-	l.discardAdapter.WriteZero(&entry)
+	_ = l.discardAdapter.WriteZero(&entry)
 }
 
 //go:inline
@@ -397,7 +386,7 @@ func (l *Logger) realFatalDiscard(_ *Logger, msg string) {
 	entry.Component = l.component
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
-	l.discardAdapter.WriteZero(&entry)
+	_ = l.discardAdapter.WriteZero(&entry)
 }
 
 //go:inline
@@ -408,7 +397,7 @@ func (l *Logger) realPanicDiscard(_ *Logger, msg string) {
 	entry.Component = l.component
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
-	l.discardAdapter.WriteZero(&entry)
+	_ = l.discardAdapter.WriteZero(&entry)
 }
 
 // ===== REGULAR ADAPTER FUNCTIONS =====
@@ -427,106 +416,10 @@ func (l *Logger) realTrace(_ *Logger, msg string) {
 	}
 
 	if len(l.adapters) == 1 {
-		l.adapters[0].WriteZero(&entry)
+		_ = l.adapters[0].WriteZero(&entry)
 	} else {
 		for _, a := range l.adapters {
-			a.WriteZero(&entry)
-		}
-	}
-}
-
-//go:inline
-func (l *Logger) realDebug(_ *Logger, msg string) {
-	var entry types.LogEntry
-	entry.Level = types.DebugLevel
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFieldCount = 0
-
-	if l.enableMasking {
-		l.masker.Apply(&entry)
-	}
-
-	if len(l.adapters) == 1 {
-		l.adapters[0].WriteZero(&entry)
-	} else {
-		for _, a := range l.adapters {
-			a.WriteZero(&entry)
-		}
-	}
-}
-
-//go:inline
-func (l *Logger) realInfo(_ *Logger, msg string) {
-	var entry types.LogEntry
-	entry.Level = types.InfoLevel
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFieldCount = 0
-
-	if l.enableMasking {
-		l.masker.Apply(&entry)
-	}
-
-	if len(l.adapters) == 1 {
-		l.adapters[0].WriteZero(&entry)
-	} else {
-		for _, a := range l.adapters {
-			a.WriteZero(&entry)
-		}
-	}
-
-	if l.metrics != nil {
-		l.metrics.counts[types.InfoLevel].Add(1)
-	}
-}
-
-//go:inline
-func (l *Logger) realWarn(_ *Logger, msg string) {
-	var entry types.LogEntry
-	entry.Level = types.WarnLevel
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFieldCount = 0
-
-	if l.enableMasking {
-		l.masker.Apply(&entry)
-	}
-
-	if len(l.adapters) == 1 {
-		l.adapters[0].WriteZero(&entry)
-	} else {
-		for _, a := range l.adapters {
-			a.WriteZero(&entry)
-		}
-	}
-
-	if l.metrics != nil {
-		l.metrics.counts[types.WarnLevel].Add(1)
-	}
-}
-
-//go:inline
-func (l *Logger) realError(_ *Logger, msg string) {
-	var entry types.LogEntry
-	entry.Level = types.ErrorLevel
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFieldCount = 0
-
-	if l.enableMasking {
-		l.masker.Apply(&entry)
-	}
-
-	if len(l.adapters) == 1 {
-		l.adapters[0].WriteZero(&entry)
-	} else {
-		for _, a := range l.adapters {
-			a.WriteZero(&entry)
+			_ = a.WriteZero(&entry)
 		}
 	}
 }
@@ -545,10 +438,10 @@ func (l *Logger) realFatal(_ *Logger, msg string) {
 	}
 
 	if len(l.adapters) == 1 {
-		l.adapters[0].WriteZero(&entry)
+		_ = l.adapters[0].WriteZero(&entry)
 	} else {
 		for _, a := range l.adapters {
-			a.WriteZero(&entry)
+			_ = a.WriteZero(&entry)
 		}
 	}
 }
@@ -567,15 +460,15 @@ func (l *Logger) realPanic(_ *Logger, msg string) {
 	}
 
 	if len(l.adapters) == 1 {
-		l.adapters[0].WriteZero(&entry)
+		_ = l.adapters[0].WriteZero(&entry)
 	} else {
 		for _, a := range l.adapters {
-			a.WriteZero(&entry)
+			_ = a.WriteZero(&entry)
 		}
 	}
 }
 
-// With returns a fluent builder for adding fields.
+// WithField returns a fluent builder for adding fields.
 // Returns by VALUE to avoid heap escape.
 // Gets per-P state lazily on first field addition.
 //
@@ -650,7 +543,7 @@ func (l *Logger) writeMinimalEntry(entry *MinimalFieldEntry) {
 	// For discard adapter, optimized path (no conversion needed)
 	if l.discardAdapter != nil {
 		// Discard adapter WriteZero is a no-op, so we can skip conversion and pass nil
-		l.discardAdapter.WriteZero(nil)
+		_ = l.discardAdapter.WriteZero(nil)
 		return
 	}
 
@@ -680,10 +573,10 @@ func (l *Logger) writeMinimalEntry(entry *MinimalFieldEntry) {
 
 	// Dispatch to adapters
 	if len(l.adapters) == 1 {
-		l.adapters[0].WriteZero(&logEntry)
+		_ = l.adapters[0].WriteZero(&logEntry)
 	} else {
 		for _, a := range l.adapters {
-			a.WriteZero(&logEntry)
+			_ = a.WriteZero(&logEntry)
 		}
 	}
 

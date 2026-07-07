@@ -40,10 +40,6 @@ const (
 	ringMask        = defaultRingSize - 1
 	maxSlotSize     = 4096 // Max bytes per log entry
 
-	// Batching
-	defaultBatchSize    = 64 * 1024 // 64KB
-	defaultBatchTimeout = 100 * time.Millisecond
-
 	// File flags (configurable O_SYNC)
 	fileFlagsAsync = os.O_CREATE | os.O_APPEND | os.O_WRONLY
 	fileFlagsSync  = os.O_CREATE | os.O_APPEND | os.O_WRONLY | os.O_SYNC
@@ -97,16 +93,20 @@ type ringSlot struct {
 	// State: 0=free, 1=writing, 2=ready, 3=consumed
 	state atomic.Uint32
 	len   int32
-	_pad  [60]byte // Cache line padding (64 bytes total)
-	data  [maxSlotSize]byte
+	//nolint:unused // cache-line padding to avoid false sharing; layout-significant, must not be removed
+	_pad [60]byte // Cache line padding (64 bytes total)
+	data [maxSlotSize]byte
 }
 
 // Ring buffer with padding to avoid false sharing
 type ringBuffer struct {
-	_pad1      [64]byte
-	writeIdx   atomic.Uint64
-	_pad2      [64]byte
-	readIdx    atomic.Uint64
+	//nolint:unused // cache-line padding to avoid false sharing; layout-significant, must not be removed
+	_pad1    [64]byte
+	writeIdx atomic.Uint64
+	//nolint:unused // cache-line padding to avoid false sharing; layout-significant, must not be removed
+	_pad2   [64]byte
+	readIdx atomic.Uint64
+	//nolint:unused // cache-line padding to avoid false sharing; layout-significant, must not be removed
 	_pad3      [64]byte
 	slots      [defaultRingSize]ringSlot
 	lostWrites atomic.Uint64 // Track dropped writes
@@ -306,7 +306,9 @@ func (rl *rateLimiter) Allow() bool {
 	}
 }
 
-// === Metrics ===
+// FileAdapterMetrics holds atomic counters for file adapter observability.
+//
+//nolint:revive // exported name intentionally kept for a stable public API; renaming to AdapterMetrics would break importers
 type FileAdapterMetrics struct {
 	WritesTotal     atomic.Int64
 	WriteErrors     atomic.Int64
@@ -320,7 +322,10 @@ type FileAdapterMetrics struct {
 	LostWrites      atomic.Int64
 }
 
-// === FileAdapter ===
+// FileAdapter is a high-throughput, lock-free file output adapter with rotation,
+// batching, circuit breaking and rate limiting.
+//
+//nolint:revive // exported name intentionally kept for a stable public API; renaming to Adapter would break importers
 type FileAdapter struct {
 	// Immutable config
 	path          string
@@ -441,7 +446,7 @@ func (f *FileAdapter) acquireFileLock() error {
 
 func (f *FileAdapter) releaseFileLock() {
 	if f.fileLock != nil {
-		f.fileLock.Unlock()
+		_ = f.fileLock.Unlock()
 		f.fileLock = nil
 	}
 }
@@ -483,9 +488,9 @@ func (f *FileAdapter) Write(entry *types.LogEntry) error {
 		f.metrics.WriteErrors.Add(1)
 		f.metrics.LostWrites.Add(1)
 
-		// Fallback to stderr
-		os.Stderr.WriteString("[FALLBACK] ")
-		os.Stderr.Write(line)
+		// Fallback to stderr (best-effort; a stderr write error is non-actionable here)
+		_, _ = os.Stderr.WriteString("[FALLBACK] ")
+		_, _ = os.Stderr.Write(line)
 		return ErrFileQueueFull
 	}
 
@@ -562,9 +567,9 @@ func (f *FileAdapter) processBatch(batch [][]byte) {
 	// Check rotation
 	if f.shouldRotate(int64(len(f.batchBuf))) {
 		if err := f.rotateLocked(); err != nil {
-			os.Stderr.WriteString("Rotation failed: ")
-			os.Stderr.WriteString(err.Error())
-			os.Stderr.WriteString("\n")
+			_, _ = os.Stderr.WriteString("Rotation failed: ")
+			_, _ = os.Stderr.WriteString(err.Error())
+			_, _ = os.Stderr.WriteString("\n")
 			f.cb.RecordFailure()
 			return
 		}
@@ -578,9 +583,9 @@ func (f *FileAdapter) processBatch(batch [][]byte) {
 	if err != nil {
 		f.cb.RecordFailure()
 		f.metrics.WriteErrors.Add(int64(len(batch)))
-		os.Stderr.WriteString("Batch write failed: ")
-		os.Stderr.WriteString(err.Error())
-		os.Stderr.WriteString("\n")
+		_, _ = os.Stderr.WriteString("Batch write failed: ")
+		_, _ = os.Stderr.WriteString(err.Error())
+		_, _ = os.Stderr.WriteString("\n")
 		return
 	}
 
@@ -604,7 +609,8 @@ func (f *FileAdapter) startFlushWorker() {
 			case <-ticker.C:
 				f.fileMu.Lock()
 				if f.currentFile != nil {
-					f.currentFile.Sync()
+					// Best-effort periodic sync; a transient sync error is retried on the next tick.
+					_ = f.currentFile.Sync()
 				}
 				f.fileMu.Unlock()
 
@@ -637,11 +643,11 @@ func (f *FileAdapter) Close() error {
 		return errors.New("close timeout")
 	}
 
-	// Final sync
+	// Final sync (best-effort during shutdown)
 	f.fileMu.Lock()
 	if f.currentFile != nil {
-		f.currentFile.Sync()
-		f.currentFile.Close()
+		_ = f.currentFile.Sync()
+		_ = f.currentFile.Close()
 		f.currentFile = nil
 	}
 	f.fileMu.Unlock()
@@ -654,14 +660,17 @@ func (f *FileAdapter) Close() error {
 	return nil
 }
 
+// Name returns the adapter's identifier.
 func (f *FileAdapter) Name() string {
 	return "FileAdapter"
 }
 
+// SetFormatter sets the formatter used to render entries before writing.
 func (f *FileAdapter) SetFormatter(formatter types.Formatter) {
 	f.formatter = formatter
 }
 
+// Health reports whether the adapter is open and its underlying file is writable.
 func (f *FileAdapter) Health() error {
 	if f.closed.Load() {
 		return ErrFileClosed
@@ -682,12 +691,14 @@ func (f *FileAdapter) Health() error {
 	return nil
 }
 
+// Metrics returns a snapshot pointer to the adapter's live metrics counters.
 func (f *FileAdapter) Metrics() *FileAdapterMetrics {
 	// Update lost writes from ring buffer
 	f.metrics.LostWrites.Store(int64(f.ring.lostWrites.Load()))
 	return f.metrics
 }
 
+// Flush forces any buffered data to be synced to disk.
 func (f *FileAdapter) Flush() error {
 	if f.closed.Load() {
 		return ErrFileClosed
@@ -725,7 +736,7 @@ func (f *FileAdapter) openFile() error {
 
 	stat, err := file.Stat()
 	if err != nil {
-		file.Close()
+		_ = file.Close()
 		return fmt.Errorf("failed to stat log file: %w", err)
 	}
 
@@ -743,7 +754,7 @@ func (f *FileAdapter) rotateLocked() error {
 
 	// Close current file
 	if f.currentFile != nil {
-		f.currentFile.Close()
+		_ = f.currentFile.Close()
 		f.currentFile = nil
 	}
 
@@ -770,41 +781,48 @@ func (f *FileAdapter) rotateAsync(backupFile string) {
 	if f.compress {
 		compressed := backupFile + ".gz"
 		if err := compressFile(backupFile, compressed); err != nil {
-			os.Stderr.WriteString("Compression failed: ")
-			os.Stderr.WriteString(err.Error())
-			os.Stderr.WriteString("\n")
+			_, _ = os.Stderr.WriteString("Compression failed: ")
+			_, _ = os.Stderr.WriteString(err.Error())
+			_, _ = os.Stderr.WriteString("\n")
 		} else {
-			os.Remove(backupFile)
+			_ = os.Remove(backupFile)
 		}
 	}
 
 	// Cleanup old backups
 	if err := f.cleanupOldBackups(); err != nil {
-		os.Stderr.WriteString("Cleanup failed: ")
-		os.Stderr.WriteString(err.Error())
-		os.Stderr.WriteString("\n")
+		_, _ = os.Stderr.WriteString("Cleanup failed: ")
+		_, _ = os.Stderr.WriteString(err.Error())
+		_, _ = os.Stderr.WriteString("\n")
 	}
 }
 
 // compressFile compresses a file with gzip
-func compressFile(src, dst string) error {
+func compressFile(src, dst string) (err error) {
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	dstFile, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	defer func() {
+		// Surface a close error only if the copy itself succeeded.
+		if cerr := dstFile.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	gzipWriter := gzip.NewWriter(dstFile)
-	defer gzipWriter.Close()
-
-	_, err = io.Copy(gzipWriter, srcFile)
-	return err
+	if _, err = io.Copy(gzipWriter, srcFile); err != nil {
+		_ = gzipWriter.Close()
+		return err
+	}
+	// Closing the gzip writer flushes the trailer; its error is actionable.
+	return gzipWriter.Close()
 }
 
 // cleanupOldBackups removes old backup files
@@ -838,7 +856,7 @@ func (f *FileAdapter) cleanupOldBackups() error {
 		// Remove files older than maxAge
 		if f.maxAge > 0 && info.ModTime().Before(cutoffTime) {
 			path := filepath.Join(dir, name)
-			os.Remove(path)
+			_ = os.Remove(path)
 			continue
 		}
 
@@ -854,7 +872,7 @@ func (f *FileAdapter) cleanupOldBackups() error {
 	if f.maxBackups > 0 && len(backups) > f.maxBackups {
 		for i := 0; i < len(backups)-f.maxBackups; i++ {
 			path := filepath.Join(dir, backups[i].Name())
-			os.Remove(path)
+			_ = os.Remove(path)
 		}
 	}
 

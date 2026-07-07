@@ -24,6 +24,8 @@ import (
    ENTRY POOL & CONSTRUCTORS
    ===================================================================== */
 
+// LogEntryPool is the shared sync.Pool used to recycle LogEntry values and
+// keep the logging hot path allocation-free.
 var LogEntryPool = sync.Pool{
 	New: func() interface{} {
 		return &LogEntry{

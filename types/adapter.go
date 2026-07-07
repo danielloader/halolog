@@ -22,8 +22,10 @@ import (
 	"sync/atomic"
 )
 
+// AdapterType is a bitflag identifying a category of log output adapter.
 type AdapterType uint32
 
+// Adapter type bitflags used for O(1), allocation-free registry lookups.
 const (
 	AdapterTypeConsole AdapterType = 1 << iota
 	AdapterTypeFile
@@ -32,7 +34,11 @@ const (
 	AdapterTypeCustom
 )
 
-// Adapter represents a log output adapter interface
+// Adapter represents a log output adapter interface. Its methods form the single
+// cohesive output contract exercised on the zero-allocation logging hot path
+// (WriteZero) and must not be split.
+//
+//nolint:interfacebloat // Cohesive hot-path output contract; splitting would break the zero-alloc write path.
 type Adapter interface {
 	Name() string
 	Write(entry *LogEntry) error
@@ -128,10 +134,23 @@ type FuncAdapter struct {
 	WriteFunc WriteFunc
 }
 
-func (a *FuncAdapter) Name() string                    { return "func_adapter" }
-func (a *FuncAdapter) Write(entry *LogEntry) error     { return a.WriteFunc(entry) }
+// Name returns the adapter name.
+func (a *FuncAdapter) Name() string { return "func_adapter" }
+
+// Write writes the log entry via the wrapped WriteFunc.
+func (a *FuncAdapter) Write(entry *LogEntry) error { return a.WriteFunc(entry) }
+
+// WriteZero writes the log entry via the wrapped WriteFunc on the zero-allocation path.
 func (a *FuncAdapter) WriteZero(entry *LogEntry) error { return a.WriteFunc(entry) }
-func (a *FuncAdapter) Flush() error                    { return nil }
-func (a *FuncAdapter) Close() error                    { return nil }
-func (a *FuncAdapter) SetFormatter(f Formatter)        {}
-func (a *FuncAdapter) Health() error                   { return nil }
+
+// Flush is a no-op for FuncAdapter.
+func (a *FuncAdapter) Flush() error { return nil }
+
+// Close is a no-op for FuncAdapter.
+func (a *FuncAdapter) Close() error { return nil }
+
+// SetFormatter is a no-op for FuncAdapter.
+func (a *FuncAdapter) SetFormatter(f Formatter) {}
+
+// Health always reports healthy for FuncAdapter.
+func (a *FuncAdapter) Health() error { return nil }

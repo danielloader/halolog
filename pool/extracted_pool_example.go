@@ -17,7 +17,6 @@
 package pool
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/go-gen-ecosystem/halolog/types"
@@ -77,8 +76,7 @@ func ExampleExtractedFieldBuilder() {
 	// Use the entry
 	entry.Message = "User login event"
 	entry.Level = types.InfoLevel
-
-	fmt.Printf("Entry has %d fields\n", entry.StaticFieldCount)
+	_ = entry.StaticFieldCount
 
 	// Reset builder to return resources to pool
 	builder.Reset()

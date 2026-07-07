@@ -19,38 +19,9 @@ package retry
 import (
 	"errors"
 	"math"
-	"sync"
 	"testing"
 	"time"
 )
-
-// MockAdapter for testing (simplified as only RetryWrite is used)
-type retryMockAdapter struct {
-	name       string
-	writeCalls int
-	writeError error
-	failCount  int
-	callCount  int
-	mu         sync.Mutex
-}
-
-func (m *retryMockAdapter) Health() error { return nil }
-func (m *retryMockAdapter) Write(entry interface{}) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.writeCalls++
-	m.callCount++
-
-	// Only return error if we haven't reached the success attempt threshold
-	if m.failCount > 0 && m.callCount <= m.failCount {
-		return m.writeError
-	}
-	return nil
-}
-func (m *retryMockAdapter) Flush() error                       { return nil }
-func (m *retryMockAdapter) Close() error                       { return nil }
-func (m *retryMockAdapter) SetFormatter(formatter interface{}) {}
-func (m *retryMockAdapter) Name() string                       { return m.name }
 
 // TestNewRetryConfig tests the RetryConfig constructor
 func TestNewRetryConfig(t *testing.T) {

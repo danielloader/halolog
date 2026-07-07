@@ -24,9 +24,6 @@ import (
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
-// EntryPool provides zero-allocation entry management using per-P state
-// Benchmark results: ~30% faster than sync.Pool approach, zero contention
-
 type poolCounters struct {
 	acquire atomic.Int64
 	release atomic.Int64
@@ -34,6 +31,8 @@ type poolCounters struct {
 	active  atomic.Int64
 }
 
+// EntryPool provides zero-allocation entry management using per-P state.
+// Benchmark results: ~30% faster than the sync.Pool approach, with zero contention.
 type EntryPool struct {
 	entryPool   sync.Pool
 	counters    poolCounters
@@ -41,7 +40,9 @@ type EntryPool struct {
 	shutdown    atomic.Bool
 }
 
-// PoolStats represents pool statistics
+// PoolStats represents pool statistics.
+//
+//nolint:revive // PoolStats is stable public API; renaming to Stats would break importers.
 type PoolStats struct {
 	AcquireCount    int64
 	ReleaseCount    int64
@@ -51,6 +52,7 @@ type PoolStats struct {
 	Shutdown        bool
 }
 
+// GlobalPool is the process-wide entry pool used by the convenience wrappers.
 var GlobalPool *EntryPool
 
 // InitializeGlobalPool creates the global entry pool
@@ -159,7 +161,8 @@ func (p *EntryPool) Close() {
 	}
 }
 
-// Global convenience wrappers
+// AcquireEntry returns a pooled entry from the global pool, falling back to a
+// freshly allocated entry when the global pool is uninitialized or shut down.
 func AcquireEntry() *types.LogEntry {
 	if GlobalPool != nil && GlobalPool.initialized.Load() && !GlobalPool.shutdown.Load() {
 		return GlobalPool.AcquireEntry()
@@ -167,6 +170,8 @@ func AcquireEntry() *types.LogEntry {
 	return acquireEntryBasic()
 }
 
+// ReleaseEntry returns an entry to the global pool, falling back to a basic
+// reset when the global pool is uninitialized or shut down.
 func ReleaseEntry(entry *types.LogEntry) {
 	if GlobalPool != nil && GlobalPool.initialized.Load() && !GlobalPool.shutdown.Load() {
 		GlobalPool.ReleaseEntry(entry)

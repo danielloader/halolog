@@ -29,7 +29,9 @@ import (
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
-// PipelineWriter defines the interface for pipeline write operations
+// PipelineWriter defines the interface for pipeline write operations.
+//
+//nolint:revive // Public write-path interface; "Pipeline" prefix names the abstraction and renaming would break consumers.
 type PipelineWriter interface {
 	Write(*clock.CachedClock, types.LogLevel, string, []types.TypedFieldData, int)
 }
@@ -70,7 +72,9 @@ type EnhancedPipelineStrategy struct {
 	atomicState atomic.Uint64
 }
 
-// PipelineConfig contains configuration for pipeline strategy
+// PipelineConfig contains configuration for pipeline strategy.
+//
+//nolint:revive // Public API config type; "Pipeline" prefix documents scope and renaming would break consumers.
 type PipelineConfig struct {
 	// Feature configuration
 	EnableMasking  bool
@@ -272,11 +276,12 @@ func (ps *EnhancedPipelineStrategy) selectOptimalPipeline() {
 	var selectedPipeline interface{}
 
 	// Pipeline selection logic (O(1) checks)
-	if ps.shouldUseDirectPipeline() {
+	switch {
+	case ps.shouldUseDirectPipeline():
 		selectedPipeline = ps.directPipeline
-	} else if ps.shouldUseSimplePipeline() {
+	case ps.shouldUseSimplePipeline():
 		selectedPipeline = ps.simplePipeline
-	} else {
+	default:
 		selectedPipeline = ps.fullPipeline
 	}
 

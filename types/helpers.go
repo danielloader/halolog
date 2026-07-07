@@ -21,15 +21,6 @@ import (
 	"strconv"
 )
 
-// errorString implements error interface without allocations
-type errorString struct {
-	s string
-}
-
-func (e *errorString) Error() string {
-	return e.s
-}
-
 // FormatAny converts any value to string with minimal allocations
 // For complex types, uses fmt.Sprintf as fallback (may allocate)
 func FormatAny(v interface{}) string {

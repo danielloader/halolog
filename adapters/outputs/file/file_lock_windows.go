@@ -26,9 +26,10 @@ import (
 	"unsafe"
 )
 
+// Flags for the Windows LockFileEx API. Names mirror the Win32 constants.
 const (
-	LOCKFILE_EXCLUSIVE_LOCK   = 0x00000002
-	LOCKFILE_FAIL_IMMEDIATELY = 0x00000001
+	LOCKFILE_EXCLUSIVE_LOCK   = 0x00000002 //nolint:revive,staticcheck // Win32 API constant name
+	LOCKFILE_FAIL_IMMEDIATELY = 0x00000001 //nolint:revive,staticcheck // Win32 API constant name
 )
 
 var (

@@ -41,10 +41,6 @@ type Collector struct {
 	maxLatency   atomic.Uint64 // nanoseconds
 	minLatency   atomic.Uint64 // nanoseconds
 
-	// Memory metrics
-	totalAllocations atomic.Uint64
-	totalBytes       atomic.Uint64
-
 	// Concurrency metrics
 	activeGoroutines atomic.Int32
 	contentionCount  atomic.Uint64
@@ -76,7 +72,9 @@ type MinuteMetrics struct {
 	RetriedLogs uint64
 }
 
-// MetricsSnapshot represents a point-in-time snapshot of metrics
+// MetricsSnapshot represents a point-in-time snapshot of metrics.
+//
+//nolint:revive // Established public API name; the "Metrics" prefix documents the payload and renaming would break external consumers of the metrics package.
 type MetricsSnapshot struct {
 	Timestamp        time.Time        `json:"timestamp"`
 	TotalLogs        uint64           `json:"total_logs"`
@@ -112,7 +110,7 @@ func NewCollector(enabled bool) *Collector {
 
 	// Initialize minute metrics
 	now := time.Now()
-	currentMinute := int(now.Minute())
+	currentMinute := now.Minute()
 	for i := 0; i < 60; i++ {
 		c.minuteMetrics[i] = &MinuteMetrics{
 			Timestamp: now.Add(time.Duration(i-currentMinute) * time.Minute),

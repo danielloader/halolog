@@ -29,6 +29,7 @@ import (
 // AlertType defines the type of alert integration
 type AlertType string
 
+// Alert type identifiers for the supported alert integrations.
 const (
 	AlertTypeSlack     AlertType = "slack"
 	AlertTypePagerDuty AlertType = "pagerduty"
@@ -177,7 +178,7 @@ func (s *SlackSender) Send(payload *AlertPayload) error {
 	if err != nil {
 		return fmt.Errorf("failed to send slack webhook: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("slack webhook returned status %d", resp.StatusCode)
@@ -251,7 +252,7 @@ func (p *PagerDutySender) Send(payload *AlertPayload) error {
 	if err != nil {
 		return fmt.Errorf("failed to send pagerduty event: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("pagerduty returned status %d", resp.StatusCode)
@@ -322,7 +323,7 @@ func (w *WebhookSender) Send(payload *AlertPayload) error {
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)

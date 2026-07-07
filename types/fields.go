@@ -31,7 +31,6 @@ import (
 //	    "active", true,
 //	    "score", 98.5,
 //	)
-
 func Fields(pairs ...interface{}) []TypedField {
 	if len(pairs)%2 != 0 {
 		return nil // Odd number of arguments

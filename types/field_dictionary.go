@@ -16,8 +16,10 @@
 
 package types
 
-// FieldDictionary provides optimized field key management interface
-// This interface allows types/ to depend only on the contract, not the implementation
+// FieldDictionary provides optimized field key management interface.
+// This interface allows types/ to depend only on the contract, not the implementation.
+//
+//nolint:interfacebloat // Cohesive key<->ID dictionary contract; members are interdependent lookups.
 type FieldDictionary interface {
 	// Register registers a new field key and returns its ID
 	Register(key string) int

@@ -37,7 +37,7 @@ func (l *Logger) infoNoMaskOne(l2 *Logger, msg string) {
 	entry.Component = l.component
 	entry.TimestampUnix = l.clock.GetNsecValue()
 
-	l.adapters[0].WriteZero(entry)
+	_ = l.adapters[0].WriteZero(entry)
 	if l.metrics != nil {
 		l.metrics.counts[types.InfoLevel].Add(1)
 	}
@@ -53,7 +53,7 @@ func (l *Logger) infoNoMaskMulti(l2 *Logger, msg string) {
 	entry.TimestampUnix = l.clock.GetNsecValue()
 
 	for _, a := range l.adapters {
-		a.WriteZero(entry)
+		_ = a.WriteZero(entry)
 	}
 	if l.metrics != nil {
 		l.metrics.counts[types.InfoLevel].Add(1)
@@ -71,7 +71,7 @@ func (l *Logger) infoMaskOne(l2 *Logger, msg string) {
 	entry.StaticFieldCount = 0
 
 	l.masker.Apply(&entry)
-	l.adapters[0].WriteZero(&entry)
+	_ = l.adapters[0].WriteZero(&entry)
 	if l.metrics != nil {
 		l.metrics.counts[types.InfoLevel].Add(1)
 	}
@@ -88,7 +88,7 @@ func (l *Logger) infoMaskMulti(l2 *Logger, msg string) {
 
 	l.masker.Apply(&entry)
 	for _, a := range l.adapters {
-		a.WriteZero(&entry)
+		_ = a.WriteZero(&entry)
 	}
 	if l.metrics != nil {
 		l.metrics.counts[types.InfoLevel].Add(1)
@@ -108,7 +108,7 @@ func (l *Logger) debugNoMaskOne(l2 *Logger, msg string) {
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
 
-	l.adapters[0].WriteZero(&entry)
+	_ = l.adapters[0].WriteZero(&entry)
 }
 
 //go:inline
@@ -121,7 +121,7 @@ func (l *Logger) debugNoMaskMulti(l2 *Logger, msg string) {
 	entry.StaticFieldCount = 0
 
 	for _, a := range l.adapters {
-		a.WriteZero(&entry)
+		_ = a.WriteZero(&entry)
 	}
 }
 
@@ -135,7 +135,7 @@ func (l *Logger) debugMaskOne(l2 *Logger, msg string) {
 	entry.StaticFieldCount = 0
 
 	l.masker.Apply(&entry)
-	l.adapters[0].WriteZero(&entry)
+	_ = l.adapters[0].WriteZero(&entry)
 }
 
 //go:inline
@@ -149,7 +149,7 @@ func (l *Logger) debugMaskMulti(l2 *Logger, msg string) {
 
 	l.masker.Apply(&entry)
 	for _, a := range l.adapters {
-		a.WriteZero(&entry)
+		_ = a.WriteZero(&entry)
 	}
 }
 
@@ -166,7 +166,7 @@ func (l *Logger) warnNoMaskOne(l2 *Logger, msg string) {
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
 
-	l.adapters[0].WriteZero(&entry)
+	_ = l.adapters[0].WriteZero(&entry)
 	if l.metrics != nil {
 		l.metrics.counts[types.WarnLevel].Add(1)
 	}
@@ -182,7 +182,7 @@ func (l *Logger) warnNoMaskMulti(l2 *Logger, msg string) {
 	entry.StaticFieldCount = 0
 
 	for _, a := range l.adapters {
-		a.WriteZero(&entry)
+		_ = a.WriteZero(&entry)
 	}
 	if l.metrics != nil {
 		l.metrics.counts[types.WarnLevel].Add(1)
@@ -199,7 +199,7 @@ func (l *Logger) warnMaskOne(l2 *Logger, msg string) {
 	entry.StaticFieldCount = 0
 
 	l.masker.Apply(&entry)
-	l.adapters[0].WriteZero(&entry)
+	_ = l.adapters[0].WriteZero(&entry)
 	if l.metrics != nil {
 		l.metrics.counts[types.WarnLevel].Add(1)
 	}
@@ -216,7 +216,7 @@ func (l *Logger) warnMaskMulti(l2 *Logger, msg string) {
 
 	l.masker.Apply(&entry)
 	for _, a := range l.adapters {
-		a.WriteZero(&entry)
+		_ = a.WriteZero(&entry)
 	}
 	if l.metrics != nil {
 		l.metrics.counts[types.WarnLevel].Add(1)
@@ -236,7 +236,7 @@ func (l *Logger) errorNoMaskOne(l2 *Logger, msg string) {
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
 
-	l.adapters[0].WriteZero(&entry)
+	_ = l.adapters[0].WriteZero(&entry)
 }
 
 //go:inline
@@ -249,7 +249,7 @@ func (l *Logger) errorNoMaskMulti(l2 *Logger, msg string) {
 	entry.StaticFieldCount = 0
 
 	for _, a := range l.adapters {
-		a.WriteZero(&entry)
+		_ = a.WriteZero(&entry)
 	}
 }
 
@@ -263,7 +263,7 @@ func (l *Logger) errorMaskOne(l2 *Logger, msg string) {
 	entry.StaticFieldCount = 0
 
 	l.masker.Apply(&entry)
-	l.adapters[0].WriteZero(&entry)
+	_ = l.adapters[0].WriteZero(&entry)
 }
 
 //go:inline
@@ -277,6 +277,6 @@ func (l *Logger) errorMaskMulti(l2 *Logger, msg string) {
 
 	l.masker.Apply(&entry)
 	for _, a := range l.adapters {
-		a.WriteZero(&entry)
+		_ = a.WriteZero(&entry)
 	}
 }

@@ -20,6 +20,7 @@ package types
 // FieldKind identifies the type of a field value without interface{} boxing.
 type FieldKind uint8
 
+// Field kind identifiers used to store typed field values without interface{} boxing.
 const (
 	KindUnknown FieldKind = iota
 	KindString

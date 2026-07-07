@@ -138,7 +138,7 @@ func TestColorRegistry_ConcurrentAccess(t *testing.T) {
 		2: types.ColorGreen,
 		3: types.ColorBlue,
 	}
-	registry.RegisterFromConfigWithIDs(fieldColors)
+	_ = registry.RegisterFromConfigWithIDs(fieldColors)
 
 	var wg sync.WaitGroup
 	errors := make(chan error, 100)
@@ -192,7 +192,7 @@ func TestColorRegistry_PerformanceStats(t *testing.T) {
 		1: types.ColorRed,
 		2: types.ColorGreen,
 	}
-	registry.RegisterFromConfigWithIDs(fieldColors)
+	_ = registry.RegisterFromConfigWithIDs(fieldColors)
 
 	// Perform level color lookups (these update stats)
 	for i := 0; i < 100; i++ {
@@ -217,7 +217,7 @@ func TestColorRegistry_Reset(t *testing.T) {
 
 	// Register colors and perform lookups
 	fieldColors := map[int]types.Color{1: types.ColorRed}
-	registry.RegisterFromConfigWithIDs(fieldColors)
+	_ = registry.RegisterFromConfigWithIDs(fieldColors)
 	registry.GetColor(types.DebugLevel) // This updates stats
 
 	// Reset
@@ -291,7 +291,7 @@ func BenchmarkColorRegistry_GetColorByFieldID(b *testing.B) {
 	for i := 0; i < 100; i++ {
 		fieldColors[i] = types.Color(i % 16)
 	}
-	registry.RegisterFromConfigWithIDs(fieldColors)
+	_ = registry.RegisterFromConfigWithIDs(fieldColors)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -310,7 +310,7 @@ func BenchmarkColorRegistry_RegisterFromConfigWithIDs(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		registry.RegisterFromConfigWithIDs(fieldColors)
+		_ = registry.RegisterFromConfigWithIDs(fieldColors)
 	}
 }
 
@@ -323,7 +323,7 @@ func BenchmarkColorRegistry_ConcurrentAccess(b *testing.B) {
 	for i := 0; i < 50; i++ {
 		fieldColors[i] = types.Color(i % 16)
 	}
-	registry.RegisterFromConfigWithIDs(fieldColors)
+	_ = registry.RegisterFromConfigWithIDs(fieldColors)
 
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
@@ -331,7 +331,7 @@ func BenchmarkColorRegistry_ConcurrentAccess(b *testing.B) {
 			// Alternate between reads and writes
 			if i%10 == 0 {
 				newColors := map[int]types.Color{i: types.Color(i % 16)}
-				registry.RegisterFromConfigWithIDs(newColors)
+				_ = registry.RegisterFromConfigWithIDs(newColors)
 			} else {
 				registry.GetColorByFieldID(i % 50)
 			}

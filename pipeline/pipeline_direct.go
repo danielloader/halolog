@@ -76,12 +76,13 @@ func (p *DirectPipeline) Write(clock *clock.CachedClock, level types.LogLevel, m
 
 	// OPTIMIZED: Direct adapter call eliminates virtual dispatch
 	if p.HasSingleAdapter {
-		// Direct function call - no interface overhead
-		p.SingleAdapter.WriteZero(&entry)
+		// Direct function call - no interface overhead.
+		// Write error is non-actionable on the hot path; discard alloc-free.
+		_ = p.SingleAdapter.WriteZero(&entry)
 	} else {
 		// Fallback for multiple adapters (rare)
 		for _, adapter := range p.Adapters {
-			adapter.WriteZero(&entry)
+			_ = adapter.WriteZero(&entry)
 		}
 	}
 	// No release needed - entry is stack-allocated and dies here

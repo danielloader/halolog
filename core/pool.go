@@ -19,7 +19,6 @@ package core
 
 import (
 	"sync"
-	"sync/atomic"
 
 	"github.com/go-gen-ecosystem/halolog/types"
 )
@@ -29,8 +28,7 @@ import (
 type perPState struct {
 	entry    types.LogEntry
 	fieldBuf [64]types.TypedFieldData // Buffer for entry fields
-	inUse    atomic.Bool
-	_        [64 - 8]byte // Padding to cache line
+	_        [64 - 8]byte             // Padding to cache line
 }
 
 // globalPerPPool is the per-P state pool
@@ -68,15 +66,4 @@ func (p *perPPool) get() *perPState {
 func (p *perPPool) put(state *perPState) {
 	state.entry.Reset() // Safe reset
 	p.pool.Put(state)
-}
-
-// resetEntry prepares a LogEntry for reuse.
-//
-//go:inline
-func resetEntry(entry *types.LogEntry) {
-	entry.StaticFieldCount = 0
-	entry.Level = types.InfoLevel
-	entry.Message = ""
-	entry.Component = ""
-	entry.TimestampUnix = 0
 }

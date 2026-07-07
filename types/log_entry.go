@@ -28,6 +28,9 @@ type MinimalLogEntry struct {
 	Message       string   // 16 bytes (string header)
 }
 
+// LogEntry is the unified, pool-backed record for a single log event. It carries
+// core metadata, error context, source location, and both dynamic and pre-allocated
+// static field storage used by the zero-allocation logging hot path.
 type LogEntry struct {
 	// Core metadata
 	Timestamp     time.Time // Wall clock time
@@ -66,13 +69,9 @@ type LogEntry struct {
 	// Performance optimization flags
 	hasFieldOverflow   bool // Flag when static storage overflows to dynamic
 	hasContextOverflow bool // Flag when static context overflows to dynamic
-	isQuantumEnabled   bool // Flag for quantum storage mode
 
 	// Memory pool optimization
 	PoolID int // Identifier for memory pool tracking
-
-	// internal bookkeeping or Internal flags for pool management
-	metadata uint64
 
 	// Scratch buffer for formatting
 	OutputBuffer [1024]byte

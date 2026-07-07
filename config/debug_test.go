@@ -17,7 +17,6 @@
 package config
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/go-gen-ecosystem/halolog/types"
@@ -42,10 +41,10 @@ func TestDebugStartupConfig(t *testing.T) {
 
 	config := builder.Build()
 
-	fmt.Printf("RegisteredFieldIDs: %v\n", config.RegisteredFieldIDs)
-	fmt.Printf("SensitiveFieldMap: %v\n", config.SensitiveFieldMap)
-	fmt.Printf("FieldColorMap: %v\n", config.FieldColorMap)
-	fmt.Printf("StartupRegistration.CustomFields: %v\n", config.StartupRegistration.CustomFields)
-	fmt.Printf("StartupRegistration.SensitiveFields: %v\n", config.StartupRegistration.SensitiveFields)
-	fmt.Printf("StartupRegistration.FieldColors: %v\n", config.StartupRegistration.FieldColors)
+	t.Logf("RegisteredFieldIDs: %v", config.RegisteredFieldIDs)
+	t.Logf("SensitiveFieldMap: %v", config.SensitiveFieldMap)
+	t.Logf("FieldColorMap: %v", config.FieldColorMap)
+	t.Logf("StartupRegistration.CustomFields: %v", config.StartupRegistration.CustomFields)
+	t.Logf("StartupRegistration.SensitiveFields: %v", config.StartupRegistration.SensitiveFields)
+	t.Logf("StartupRegistration.FieldColors: %v", config.StartupRegistration.FieldColors)
 }

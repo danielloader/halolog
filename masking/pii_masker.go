@@ -17,9 +17,7 @@
 package masking
 
 import (
-	"fmt"
 	"regexp"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -39,17 +37,6 @@ var byteBufferPool = sync.Pool{
 		b := make([]byte, 0, 1024)
 		return &b
 	},
-}
-
-func getBuffer() *[]byte {
-	return byteBufferPool.Get().(*[]byte)
-}
-
-func putBuffer(b *[]byte) {
-	if b != nil {
-		*b = (*b)[:0] // Reset length, keep capacity
-		byteBufferPool.Put(b)
-	}
 }
 
 // -----------------------------
@@ -343,79 +330,8 @@ func (pm *piiMasker) maskFieldFast(field *types.TypedFieldData, snap *maskerSnap
 	return field
 }
 
-// maskStringFast uses lazy regex rules for masking with ZERO ALLOCATIONS
-func (pm *piiMasker) maskStringFast(s string, snap *maskerSnapshot) string {
-	if len(snap.regexRules) == 0 {
-		return s
-	}
-
-	// Get buffer from pool for zero-allocation string building
-	buf := byteBufferPool.Get().(*[]byte)
-	defer byteBufferPool.Put(buf)
-
-	// Reset buffer
-	*buf = (*buf)[:0]
-
-	// Working copy - start with original string
-	remaining := s
-	changed := false
-
-	// Apply all regex rules sequentially with zero allocations
-	for _, rule := range snap.regexRules {
-		re := rule.getCompiled()
-		if re != nil {
-			// Find all matches in remaining string
-			matches := re.FindAllStringIndex(remaining, -1)
-			if len(matches) == 0 {
-				continue
-			}
-
-			changed = true
-			lastEnd := 0
-
-			// Build result by copying non-matched parts and replacements
-			for _, match := range matches {
-				start, end := match[0], match[1]
-
-				// Copy the part before this match
-				if start > lastEnd {
-					*buf = append(*buf, remaining[lastEnd:start]...)
-				}
-
-				// Append the replacement
-				*buf = append(*buf, rule.replace...)
-
-				lastEnd = end
-			}
-
-			// Copy the remaining part after last match
-			if lastEnd < len(remaining) {
-				*buf = append(*buf, remaining[lastEnd:]...)
-			}
-
-			// Update remaining for next iteration - this is the problematic line
-			remaining = string(*buf)
-			*buf = (*buf)[:0] // Reset buffer for next iteration
-		}
-	}
-
-	if !changed {
-		return s
-	}
-	return remaining
-}
-
 // String interning pool for common replacements to reduce allocations
 var stringInternPool = sync.Map{}
-
-// bytesToString converts bytes to string without allocation using unsafe
-// This is a zero-allocation conversion that reuses the byte slice memory
-func bytesToString(b []byte) string {
-	if len(b) == 0 {
-		return ""
-	}
-	return *(*string)(unsafe.Pointer(&b))
-}
 
 // bytesToStringUnsafe converts bytes to string without allocation
 // WARNING: This creates a string that shares memory with the byte slice
@@ -425,15 +341,6 @@ func bytesToStringUnsafe(b []byte) string {
 		return ""
 	}
 	return unsafe.String(unsafe.SliceData(b), len(b))
-}
-
-// stringToBytes converts string to bytes without allocation using unsafe
-// WARNING: The resulting byte slice shares memory with the string and must not be modified
-func stringToBytes(s string) []byte {
-	if s == "" {
-		return nil
-	}
-	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
 func internString(s string) string {
@@ -645,48 +552,8 @@ func (pm *piiMasker) maskStringOptimizedZeroAlloc(s string, snap *maskerSnapshot
 	return result
 }
 
-// matchRange represents a match range for zero-allocation processing
-type matchRange struct {
-	start   int
-	end     int
-	replace string
-}
-
 // -----------------------------
-// 4. Zero-Alloc Formatting
-// -----------------------------
-
-// appendValueForMasking appends the string representation of v to b.
-// This replaces formatValueForMasking and eliminates 99% of allocations.
-func appendValueForMasking(b *[]byte, value interface{}) {
-	switch v := value.(type) {
-	case string:
-		*b = append(*b, v...)
-	case int:
-		*b = strconv.AppendInt(*b, int64(v), 10)
-	case int64:
-		*b = strconv.AppendInt(*b, v, 10)
-	case int32:
-		*b = strconv.AppendInt(*b, int64(v), 10)
-	case float64:
-		*b = strconv.AppendFloat(*b, v, 'f', -1, 64)
-	case bool:
-		*b = strconv.AppendBool(*b, v)
-	case []byte:
-		*b = append(*b, v...)
-	case error:
-		*b = append(*b, v.Error()...)
-	case nil:
-		*b = append(*b, "null"...)
-	default:
-		// Fallback for complex types
-		s := fmt.Sprint(v)
-		*b = append(*b, s...)
-	}
-}
-
-// -----------------------------
-// 5. Configuration & Compilation
+// 4. Configuration & Compilation
 // -----------------------------
 
 func (pm *piiMasker) AddRule(pattern string, replace string, ruleType string) error {
@@ -758,7 +625,7 @@ func (pm *piiMasker) RemovePattern(name string) {
 			}
 		}
 		pm.storedRules = newRules
-		pm.updateSnapshot()
+		_ = pm.updateSnapshot()
 	}
 }
 
@@ -783,7 +650,7 @@ func (pm *piiMasker) Clone() types.PIIMasker {
 	newPm := NewPIIMasker().(*piiMasker)
 	newPm.storedRules = make([]types.MaskingRule, len(pm.storedRules))
 	copy(newPm.storedRules, pm.storedRules)
-	newPm.updateSnapshot()
+	_ = newPm.updateSnapshot()
 
 	return newPm
 }
@@ -856,51 +723,58 @@ func (pm *piiMasker) updateSnapshot() error {
 
 // addDefaultPatterns adds common PII patterns
 // MUST be attached to the receiver to compile correctly.
+//
+// The rule set below is composed of compile-time constants, so AddRule never
+// returns an error here (updateSnapshot skips invalid regexes rather than
+// failing). Errors are therefore intentionally discarded via defaultRules.
 func (pm *piiMasker) addDefaultPatterns() {
-	// CRITICAL: Use field-name matching for password fields (fast path)
-	pm.AddRule("password", "***PASSWORD***", "field")
-	pm.AddRule("passwd", "***PASSWORD***", "field")
-	pm.AddRule("pwd", "***PASSWORD***", "field")
-	pm.AddRule("pass", "***PASSWORD***", "field")
-	pm.AddRule("secret", "***SECRET***", "field")
-	pm.AddRule("token", "***TOKEN***", "field")
-	pm.AddRule("api_key", "***API_KEY***", "field")
-	pm.AddRule("apikey", "***API_KEY***", "field")
+	// {pattern, replacement, type}
+	defaultRules := [][3]string{
+		// CRITICAL: Use field-name matching for password fields (fast path)
+		{"password", "***PASSWORD***", "field"},
+		{"passwd", "***PASSWORD***", "field"},
+		{"pwd", "***PASSWORD***", "field"},
+		{"pass", "***PASSWORD***", "field"},
+		{"secret", "***SECRET***", "field"},
+		{"token", "***TOKEN***", "field"},
+		{"api_key", "***API_KEY***", "field"},
+		{"apikey", "***API_KEY***", "field"},
 
-	// Regex rules for message masking
-	// Email
-	pm.AddRule(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b`, "[EMAIL]", "regex")
+		// Regex rules for message masking
+		// Email
+		{`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b`, "[EMAIL]", "regex"},
+		// Credit Card (common formats)
+		{`\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b`, "[CREDIT_CARD]", "regex"},
+		// SSN
+		{`\b\d{3}-\d{2}-\d{4}\b`, "[SSN]", "regex"},
+		// Phone - handles multiple formats: (555) 123-4567, 555-123-4567, 555.123.4567, 5551234567
+		{`(?:\(\d{3}\)\s?\d{3}[-.]?\d{4}|\b\d{3}[-.]?\d{3}[-.]?\d{4}\b)`, "[PHONE]", "regex"},
+		// IP Address
+		{`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`, "[IP_ADDRESS]", "regex"},
 
-	// Credit Card (common formats)
-	pm.AddRule(`\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b`, "[CREDIT_CARD]", "regex")
+		// API Keys (more specific patterns first)
+		{`\bsk-[a-zA-Z0-9]{10,}\b`, "***API_KEY***", "regex"},
+		{`\bapi[_-]?key[:\s]*[a-zA-Z0-9]{8,}\b`, "***API_KEY***", "regex"},
 
-	// SSN
-	pm.AddRule(`\b\d{3}-\d{2}-\d{4}\b`, "[SSN]", "regex")
+		// Password in messages (common patterns)
+		{`\bpassword:\s+[a-zA-Z0-9]{5,}\b`, "Password: ***PASSWORD***", "regex"},
+		{`\bpass:\s+[a-zA-Z0-9]{5,}\b`, "Pass: ***PASSWORD***", "regex"},
+		{`\bPassword:\s+[a-zA-Z0-9]{5,}\b`, "Password: ***PASSWORD***", "regex"},
+		{`\bPass:\s+[a-zA-Z0-9]{5,}\b`, "Pass: ***PASSWORD***", "regex"},
 
-	// Phone - handles multiple formats: (555) 123-4567, 555-123-4567, 555.123.4567, 5551234567
-	pm.AddRule(`(?:\(\d{3}\)\s?\d{3}[-.]?\d{4}|\b\d{3}[-.]?\d{3}[-.]?\d{4}\b)`, "[PHONE]", "regex")
+		// High entropy tokens (alphanumeric strings with high entropy) - less specific, so comes last
+		{`\b[a-zA-Z0-9]{12,}\b`, "REDACTED", "regex"},
+		{`\b[a-zA-Z0-9!@#$%^&*()_+=\-{}\[\]:;"'|\?/.,<>~]{12,}\b`, "REDACTED", "regex"},
+		{`\b[a-zA-Z][a-zA-Z0-9]{11,}\b`, "REDACTED", "regex"},
 
-	// IP Address
-	pm.AddRule(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`, "[IP_ADDRESS]", "regex")
+		// Password fields (common field names)
+		{`password`, "***PASSWORD***", "field"},
+		{`passwd`, "***PASSWORD***", "field"},
+		{`pwd`, "***PASSWORD***", "field"},
+		{`pass`, "***PASSWORD***", "field"},
+	}
 
-	// API Keys (more specific patterns first)
-	pm.AddRule(`\bsk-[a-zA-Z0-9]{10,}\b`, "***API_KEY***", "regex")
-	pm.AddRule(`\bapi[_-]?key[:\s]*[a-zA-Z0-9]{8,}\b`, "***API_KEY***", "regex")
-
-	// Password in messages (common patterns)
-	pm.AddRule(`\bpassword:\s+[a-zA-Z0-9]{5,}\b`, "Password: ***PASSWORD***", "regex")
-	pm.AddRule(`\bpass:\s+[a-zA-Z0-9]{5,}\b`, "Pass: ***PASSWORD***", "regex")
-	pm.AddRule(`\bPassword:\s+[a-zA-Z0-9]{5,}\b`, "Password: ***PASSWORD***", "regex")
-	pm.AddRule(`\bPass:\s+[a-zA-Z0-9]{5,}\b`, "Pass: ***PASSWORD***", "regex")
-
-	// High entropy tokens (alphanumeric strings with high entropy) - less specific, so comes last
-	pm.AddRule(`\b[a-zA-Z0-9]{12,}\b`, "REDACTED", "regex")
-	pm.AddRule(`\b[a-zA-Z0-9!@#$%^&*()_+=\-{}\[\]:;"'|\?/.,<>~]{12,}\b`, "REDACTED", "regex")
-	pm.AddRule(`\b[a-zA-Z][a-zA-Z0-9]{11,}\b`, "REDACTED", "regex")
-
-	// Password fields (common field names)
-	pm.AddRule(`password`, "***PASSWORD***", "field")
-	pm.AddRule(`passwd`, "***PASSWORD***", "field")
-	pm.AddRule(`pwd`, "***PASSWORD***", "field")
-	pm.AddRule(`pass`, "***PASSWORD***", "field")
+	for _, r := range defaultRules {
+		_ = pm.AddRule(r[0], r[1], r[2])
+	}
 }

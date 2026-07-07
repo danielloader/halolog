@@ -17,7 +17,6 @@
 package file
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +57,7 @@ func TestFileAdapter_Write(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileAdapter failed: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Test writing a log entry
 	entry := &types.LogEntry{
@@ -80,7 +79,7 @@ func TestFileAdapter_Write(t *testing.T) {
 	}
 
 	// Verify file was created and contains content
-	content, err := ioutil.ReadFile(logFile)
+	content, err := os.ReadFile(logFile)
 	if err != nil {
 		t.Fatalf("Failed to read log file: %v", err)
 	}
@@ -102,7 +101,7 @@ func TestFileAdapter_WriteNilEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileAdapter failed: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	err = adapter.Write(nil)
 	if err == nil {
@@ -121,7 +120,7 @@ func TestFileAdapter_SetFormatter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileAdapter failed: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Set JSON formatter
 	jsonFormatter := json.NewJsonFormatter()
@@ -139,10 +138,10 @@ func TestFileAdapter_SetFormatter(t *testing.T) {
 		t.Errorf("Write should not error: %v", err)
 	}
 
-	adapter.Flush()
+	_ = adapter.Flush()
 
 	// Verify JSON format
-	content, err := ioutil.ReadFile(logFile)
+	content, err := os.ReadFile(logFile)
 	if err != nil {
 		t.Fatalf("Failed to read log file: %v", err)
 	}
@@ -165,7 +164,7 @@ func TestFileAdapter_ShouldRotate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileAdapter failed: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Write a small entry - should not rotate
 	entry := &types.LogEntry{
@@ -179,7 +178,7 @@ func TestFileAdapter_ShouldRotate(t *testing.T) {
 		t.Errorf("Write should not error: %v", err)
 	}
 
-	adapter.Flush()
+	_ = adapter.Flush()
 
 	// Check if file exists (should not have rotated yet)
 	if _, err := os.Stat(logFile); os.IsNotExist(err) {
@@ -200,7 +199,7 @@ func TestFileAdapter_Rotate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileAdapter failed: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Write enough content to trigger rotation
 	largeMessage := strings.Repeat("This is a large message that should trigger rotation. ", 20)
@@ -215,7 +214,7 @@ func TestFileAdapter_Rotate(t *testing.T) {
 		t.Errorf("Write should not error: %v", err)
 	}
 
-	adapter.Flush()
+	_ = adapter.Flush()
 
 	// Write more entries to potentially trigger rotation
 	for i := 0; i < 5; i++ {
@@ -224,10 +223,10 @@ func TestFileAdapter_Rotate(t *testing.T) {
 			Message:   utils.FormatIntAndText("Message", ' ', i, largeMessage),
 			Timestamp: time.Now(),
 		}
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
-	adapter.Flush()
+	_ = adapter.Flush()
 
 	// Check for backup files
 	backupPattern := logFile + "*"
@@ -255,7 +254,7 @@ func TestFileAdapter_CompressBackups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileAdapter failed: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Write enough content to trigger rotation
 	largeMessage := strings.Repeat("Large message content. ", 15)
@@ -265,10 +264,10 @@ func TestFileAdapter_CompressBackups(t *testing.T) {
 			Message:   utils.FormatIntAndText("Message", ' ', i, largeMessage),
 			Timestamp: time.Now(),
 		}
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
-	adapter.Flush()
+	_ = adapter.Flush()
 
 	// Check for compressed backup files
 	compressedPattern := filepath.Join(tempDir, "*.gz")
@@ -293,7 +292,7 @@ func TestFileAdapter_CleanupOldBackups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileAdapter failed: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Write many entries to trigger multiple rotations
 	for i := 0; i < 10; i++ {
@@ -302,10 +301,10 @@ func TestFileAdapter_CleanupOldBackups(t *testing.T) {
 			Message:   utils.FormatIntAndText("Message", ':', i, strings.Repeat("Content. ", 10)),
 			Timestamp: time.Now(),
 		}
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
-	adapter.Flush()
+	_ = adapter.Flush()
 
 	// Check backup files
 	backupPattern := logFile + "*"
@@ -328,7 +327,7 @@ func TestFileAdapter_FlushInternal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileAdapter failed: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Write multiple entries
 	for i := 0; i < 5; i++ {
@@ -337,7 +336,7 @@ func TestFileAdapter_FlushInternal(t *testing.T) {
 			Message:   utils.FormatIntWithPrefix("Flush test message", i),
 			Timestamp: time.Now(),
 		}
-		adapter.Write(entry)
+		_ = adapter.Write(entry)
 	}
 
 	// Flush should write all buffered entries
@@ -347,7 +346,7 @@ func TestFileAdapter_FlushInternal(t *testing.T) {
 	}
 
 	// Verify all entries were written
-	content, err := ioutil.ReadFile(logFile)
+	content, err := os.ReadFile(logFile)
 	if err != nil {
 		t.Fatalf("Failed to read log file: %v", err)
 	}
@@ -379,7 +378,7 @@ func TestFileAdapter_WriteAfterClose(t *testing.T) {
 		t.Fatalf("NewFileAdapter failed: %v", err)
 	}
 
-	adapter.Close()
+	_ = adapter.Close()
 
 	// Try to write after close
 	entry := &types.LogEntry{

@@ -88,10 +88,10 @@ func TestLoggerLevelFiltering(t *testing.T) {
 // the entry pointer and reading it after the call recycles it.
 func TestLoggerFluentAPI(t *testing.T) {
 	var (
-		captured        bool
-		gotMessage      string
-		gotLevel        types.LogLevel
-		gotFieldCount   int
+		captured      bool
+		gotMessage    string
+		gotLevel      types.LogLevel
+		gotFieldCount int
 	)
 	testAdapter := &types.FuncAdapter{
 		WriteFunc: func(entry *types.LogEntry) error {

@@ -198,9 +198,7 @@ func (e *LogEntry) MergeQuantumFieldsIntoTyped() {
 	}
 
 	quantumFields := e.QuantumStore.GetAll()
-	for _, qf := range quantumFields {
-		e.Fields = append(e.Fields, qf)
-	}
+	e.Fields = append(e.Fields, quantumFields...)
 }
 
 // Clone creates a deep copy of the log entry
@@ -225,8 +223,8 @@ func (e *LogEntry) Clone() *LogEntry {
 	copy(clone.Context, e.Context)
 
 	// Copy static fields
-	copy(clone.StaticFields[:], e.StaticFields[:])
-	copy(clone.StaticContext[:], e.StaticContext[:])
+	copy(clone.StaticFields, e.StaticFields)
+	copy(clone.StaticContext, e.StaticContext)
 
 	// Clone quantum store if present
 	if e.QuantumStore != nil {

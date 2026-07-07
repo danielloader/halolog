@@ -17,8 +17,6 @@
 package fielddict
 
 import (
-	"fmt"
-	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -270,8 +268,8 @@ func (fd *FieldDictionary) GetAllFieldIDs() map[string]int {
 func (fd *FieldDictionary) GetPerformanceStats() types.FieldDictionaryStats {
 	return types.FieldDictionaryStats{
 		TotalFields:  int(fd.fieldCounter.Load()),
-		FastPathHits: uint64(fd.fastPathHit.Load()),
-		SlowPathHits: uint64(fd.slowPathHit.Load()),
+		FastPathHits: fd.fastPathHit.Load(),
+		SlowPathHits: fd.slowPathHit.Load(),
 	}
 }
 
@@ -413,33 +411,6 @@ type Field struct {
 func NewField(key string, value interface{}) Field {
 	keyID := GlobalFieldDictionary.GetOrRegisterFieldID(key)
 	return Field{KeyID: keyID, Value: value}
-}
-
-// formatFieldValue formats a field value as string
-func formatFieldValue(value interface{}) string {
-	switch v := value.(type) {
-	case int:
-		return strconv.Itoa(v)
-	case int64:
-		return strconv.FormatInt(v, 10)
-	case string:
-		return v
-	case bool:
-		if v {
-			return "true"
-		}
-		return "false"
-	default:
-		if v == nil {
-			return "<nil>"
-		}
-		return fmt.Sprintf("%v", v)
-	}
-}
-
-// formatFieldString formats a field key-value pair as string
-func formatFieldString(key string, value interface{}) string {
-	return key + "=" + formatFieldValue(value)
 }
 
 // NewFieldWithDict creates a new field using a specific dictionary

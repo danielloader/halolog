@@ -21,7 +21,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/go-gen-ecosystem/halolog/types"
 	"github.com/go-gen-ecosystem/halolog/utils"
@@ -47,77 +46,6 @@ func assertMaskedField(t *testing.T, fields []types.TypedFieldData, key string, 
 		}
 	}
 	t.Fatalf("Field %s not found", key)
-}
-
-// --- MOCKS -------------------------------------------------------------------
-
-type piiMockAdapter struct {
-	name       string
-	writeCalls int
-	mu         sync.Mutex
-}
-
-func (m *piiMockAdapter) Name() string                   { return m.name }
-func (m *piiMockAdapter) Health() error                  { return nil }
-func (m *piiMockAdapter) Flush() error                   { return nil }
-func (m *piiMockAdapter) Close() error                   { return nil }
-func (m *piiMockAdapter) SetFormatter(f types.Formatter) {}
-
-func (m *piiMockAdapter) Write(entry *types.LogEntry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.writeCalls++
-	return nil
-}
-
-func (m *piiMockAdapter) WriteZero(z *types.LogEntry) error {
-	fields := make([]types.TypedFieldData, 0, len(z.Fields))
-	for _, field := range z.Fields {
-		fields = append(fields, field)
-	}
-	return m.Write(&types.LogEntry{
-		Level:     types.LogLevel(z.Level),
-		Message:   z.Message,
-		Component: z.Component,
-		Fields:    fields,
-		Timestamp: z.Timestamp,
-	})
-}
-
-// Capturing mock
-type piiCapturingMockAdapter struct {
-	name       string
-	writeCalls int
-	lastEntry  *types.LogEntry
-	mu         sync.Mutex
-}
-
-func (m *piiCapturingMockAdapter) Name() string                   { return m.name }
-func (m *piiCapturingMockAdapter) Health() error                  { return nil }
-func (m *piiCapturingMockAdapter) Flush() error                   { return nil }
-func (m *piiCapturingMockAdapter) Close() error                   { return nil }
-func (m *piiCapturingMockAdapter) SetFormatter(f types.Formatter) {}
-
-func (m *piiCapturingMockAdapter) Write(entry *types.LogEntry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.writeCalls++
-	m.lastEntry = entry
-	return nil
-}
-
-func (m *piiCapturingMockAdapter) WriteZero(z *types.LogEntry) error {
-	fields := make([]types.TypedFieldData, 0, len(z.Fields))
-	for _, field := range z.Fields {
-		fields = append(fields, field)
-	}
-	return m.Write(&types.LogEntry{
-		Level:     types.LogLevel(z.Level),
-		Message:   z.Message,
-		Component: z.Component,
-		Fields:    fields,
-		Timestamp: z.Timestamp,
-	})
 }
 
 // --- TESTS -------------------------------------------------------------------
@@ -161,7 +89,7 @@ func TestPIIMasker_MultipleHeuristicTokens(t *testing.T) {
 
 func TestPIIMasker_Stress_EntropyRandomStrings(t *testing.T) {
 	m := NewPIIMasker()
-	rand.Seed(time.Now().UnixNano())
+	// Go 1.20+ auto-seeds the global source; no explicit Seed call is needed.
 
 	for i := 0; i < 500; i++ {
 		s := randomHighEntropyString(32)
@@ -267,7 +195,7 @@ func TestPIIMasker_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			m.AddPattern(utils.FormatIntWithPrefix("P", id), `\bX\d+\b`, "[X]")
+			_ = m.AddPattern(utils.FormatIntWithPrefix("P", id), `\bX\d+\b`, "[X]")
 			m.MaskString(utils.FormatWithPrefixAndSuffix("Value X%", id, " abc@example.com"))
 			m.RemovePattern(utils.FormatIntWithPrefix("P", id))
 		}(i)

@@ -196,20 +196,20 @@ func TestConfigLoader_LoadFromJSON(t *testing.T) {
 
 func TestConfigLoader_LoadFromEnv(t *testing.T) {
 	// Set environment variables
-	os.Setenv("HALOLOG_LOGGER_NAME", "env-logger")
-	os.Setenv("HALOLOG_LOGGER_LEVEL", "WARN")
-	os.Setenv("HALOLOG_APPENDER_TYPE", "file")
-	os.Setenv("HALOLOG_FILE_PATH", "logs/env.log")
-	os.Setenv("HALOLOG_RATE_LIMIT", "2000")
-	os.Setenv("HALOLOG_BUFFER_SIZE", "200")
+	_ = os.Setenv("HALOLOG_LOGGER_NAME", "env-logger")
+	_ = os.Setenv("HALOLOG_LOGGER_LEVEL", "WARN")
+	_ = os.Setenv("HALOLOG_APPENDER_TYPE", "file")
+	_ = os.Setenv("HALOLOG_FILE_PATH", "logs/env.log")
+	_ = os.Setenv("HALOLOG_RATE_LIMIT", "2000")
+	_ = os.Setenv("HALOLOG_BUFFER_SIZE", "200")
 
 	defer func() {
-		os.Unsetenv("HALOLOG_LOGGER_NAME")
-		os.Unsetenv("HALOLOG_LOGGER_LEVEL")
-		os.Unsetenv("HALOLOG_APPENDER_TYPE")
-		os.Unsetenv("HALOLOG_FILE_PATH")
-		os.Unsetenv("HALOLOG_RATE_LIMIT")
-		os.Unsetenv("HALOLOG_BUFFER_SIZE")
+		_ = os.Unsetenv("HALOLOG_LOGGER_NAME")
+		_ = os.Unsetenv("HALOLOG_LOGGER_LEVEL")
+		_ = os.Unsetenv("HALOLOG_APPENDER_TYPE")
+		_ = os.Unsetenv("HALOLOG_FILE_PATH")
+		_ = os.Unsetenv("HALOLOG_RATE_LIMIT")
+		_ = os.Unsetenv("HALOLOG_BUFFER_SIZE")
 	}()
 
 	loader := NewConfigLoader("HALOLOG_")
@@ -431,20 +431,20 @@ func TestConfigLoader_getEnvBool(t *testing.T) {
 	}
 
 	// Test true values
-	os.Setenv("TEST_TRUE_BOOL", "true")
-	os.Setenv("TEST_TRUE_BOOL_1", "1")
-	os.Setenv("TEST_TRUE_BOOL_YES", "yes")
-	os.Setenv("TEST_TRUE_BOOL_ON", "on")
+	_ = os.Setenv("TEST_TRUE_BOOL", "true")
+	_ = os.Setenv("TEST_TRUE_BOOL_1", "1")
+	_ = os.Setenv("TEST_TRUE_BOOL_YES", "yes")
+	_ = os.Setenv("TEST_TRUE_BOOL_ON", "on")
 	defer func() {
-		os.Unsetenv("TEST_TRUE_BOOL")
-		os.Unsetenv("TEST_TRUE_BOOL_1")
-		os.Unsetenv("TEST_TRUE_BOOL_YES")
-		os.Unsetenv("TEST_TRUE_BOOL_ON")
+		_ = os.Unsetenv("TEST_TRUE_BOOL")
+		_ = os.Unsetenv("TEST_TRUE_BOOL_1")
+		_ = os.Unsetenv("TEST_TRUE_BOOL_YES")
+		_ = os.Unsetenv("TEST_TRUE_BOOL_ON")
 	}()
 
 	trueCases := []string{"true", "1", "yes", "on", "TRUE", "True", "YES", "Yes"}
 	for _, tc := range trueCases {
-		os.Setenv("TEST_BOOL", tc)
+		_ = os.Setenv("TEST_BOOL", tc)
 		result := loader.getEnvBool("BOOL", false)
 		if result != true {
 			t.Errorf("Expected true for '%s', got %v", tc, result)
@@ -454,7 +454,7 @@ func TestConfigLoader_getEnvBool(t *testing.T) {
 	// Test false values
 	falseCases := []string{"false", "0", "no", "off", "FALSE", "False", "NO", "No"}
 	for _, tc := range falseCases {
-		os.Setenv("TEST_BOOL", tc)
+		_ = os.Setenv("TEST_BOOL", tc)
 		result := loader.getEnvBool("BOOL", true)
 		if result != false {
 			t.Errorf("Expected false for '%s', got %v", tc, result)
@@ -464,7 +464,7 @@ func TestConfigLoader_getEnvBool(t *testing.T) {
 	// Test invalid values (should return default)
 	invalidCases := []string{"invalid", "maybe", "", "2", "-1"}
 	for _, tc := range invalidCases {
-		os.Setenv("TEST_BOOL", tc)
+		_ = os.Setenv("TEST_BOOL", tc)
 		result := loader.getEnvBool("BOOL", true)
 		if result != true {
 			t.Errorf("Expected default true for invalid '%s', got %v", tc, result)
@@ -482,13 +482,13 @@ func TestConfigLoader_getEnvInt(t *testing.T) {
 	}
 
 	// Test valid integer values
-	os.Setenv("TEST_VALID_INT", "123")
-	os.Setenv("TEST_ZERO_INT", "0")
-	os.Setenv("TEST_NEGATIVE_INT", "-456")
+	_ = os.Setenv("TEST_VALID_INT", "123")
+	_ = os.Setenv("TEST_ZERO_INT", "0")
+	_ = os.Setenv("TEST_NEGATIVE_INT", "-456")
 	defer func() {
-		os.Unsetenv("TEST_VALID_INT")
-		os.Unsetenv("TEST_ZERO_INT")
-		os.Unsetenv("TEST_NEGATIVE_INT")
+		_ = os.Unsetenv("TEST_VALID_INT")
+		_ = os.Unsetenv("TEST_ZERO_INT")
+		_ = os.Unsetenv("TEST_NEGATIVE_INT")
 	}()
 
 	result = loader.getEnvInt("VALID_INT", 0)
@@ -507,11 +507,11 @@ func TestConfigLoader_getEnvInt(t *testing.T) {
 	}
 
 	// Test invalid values (should return default)
-	os.Setenv("TEST_INVALID_INT", "not_a_number")
-	os.Setenv("TEST_EMPTY_INT", "")
+	_ = os.Setenv("TEST_INVALID_INT", "not_a_number")
+	_ = os.Setenv("TEST_EMPTY_INT", "")
 	defer func() {
-		os.Unsetenv("TEST_INVALID_INT")
-		os.Unsetenv("TEST_EMPTY_INT")
+		_ = os.Unsetenv("TEST_INVALID_INT")
+		_ = os.Unsetenv("TEST_EMPTY_INT")
 	}()
 
 	result = loader.getEnvInt("INVALID_INT", 999)
@@ -536,8 +536,8 @@ func TestConfigLoader_getEnvStringSlice(t *testing.T) {
 	}
 
 	// Test empty env var (should return default value)
-	os.Setenv("TEST_EMPTY_SLICE", "")
-	defer os.Unsetenv("TEST_EMPTY_SLICE")
+	_ = os.Setenv("TEST_EMPTY_SLICE", "")
+	defer func() { _ = os.Unsetenv("TEST_EMPTY_SLICE") }()
 
 	result = loader.getEnvStringSlice("EMPTY_SLICE", defaultValue)
 	if len(result) != 2 || result[0] != "default1" || result[1] != "default2" {
@@ -545,8 +545,8 @@ func TestConfigLoader_getEnvStringSlice(t *testing.T) {
 	}
 
 	// Test single value
-	os.Setenv("TEST_SINGLE_SLICE", "single")
-	defer os.Unsetenv("TEST_SINGLE_SLICE")
+	_ = os.Setenv("TEST_SINGLE_SLICE", "single")
+	defer func() { _ = os.Unsetenv("TEST_SINGLE_SLICE") }()
 
 	result = loader.getEnvStringSlice("SINGLE_SLICE", defaultValue)
 	if len(result) != 1 || result[0] != "single" {
@@ -554,8 +554,8 @@ func TestConfigLoader_getEnvStringSlice(t *testing.T) {
 	}
 
 	// Test multiple values
-	os.Setenv("TEST_MULTI_SLICE", "value1,value2,value3")
-	defer os.Unsetenv("TEST_MULTI_SLICE")
+	_ = os.Setenv("TEST_MULTI_SLICE", "value1,value2,value3")
+	defer func() { _ = os.Unsetenv("TEST_MULTI_SLICE") }()
 
 	result = loader.getEnvStringSlice("MULTI_SLICE", defaultValue)
 	if len(result) != 3 || result[0] != "value1" || result[1] != "value2" || result[2] != "value3" {
@@ -563,8 +563,8 @@ func TestConfigLoader_getEnvStringSlice(t *testing.T) {
 	}
 
 	// Test values with spaces
-	os.Setenv("TEST_SPACED_SLICE", "item1, item2,item3")
-	defer os.Unsetenv("TEST_SPACED_SLICE")
+	_ = os.Setenv("TEST_SPACED_SLICE", "item1, item2,item3")
+	defer func() { _ = os.Unsetenv("TEST_SPACED_SLICE") }()
 
 	result = loader.getEnvStringSlice("SPACED_SLICE", defaultValue)
 	if len(result) != 3 || result[0] != "item1" || result[1] != " item2" || result[2] != "item3" {
@@ -623,33 +623,13 @@ func createTempYAMLFile(content string) (string, error) {
 	}
 
 	if _, err := tmpFile.WriteString(content); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpFile.Name())
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpFile.Name())
 		return "", err
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpFile.Name())
-		return "", err
-	}
-
-	return tmpFile.Name(), nil
-}
-
-func createTempJSONFile(content string) (string, error) {
-	tmpFile, err := os.CreateTemp("", "halolog-config-*.json")
-	if err != nil {
-		return "", err
-	}
-
-	if _, err := tmpFile.WriteString(content); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpFile.Name())
-		return "", err
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpFile.Name())
+		_ = os.Remove(tmpFile.Name())
 		return "", err
 	}
 

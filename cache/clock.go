@@ -25,7 +25,6 @@ import (
 // CachedClock provides a fast, low-cost timestamp read for the hot path.
 // It is updated by a background goroutine at a configurable interval (default 10ms for High-performance performance).
 // Hot path reads are atomic loads of an int64 unix-nanoseconds value.
-
 type CachedClock struct {
 	_       [64]byte // Padding before
 	nsec    atomic.Int64
@@ -34,6 +33,8 @@ type CachedClock struct {
 	stopped atomic.Bool // Guard against double-close
 }
 
+// NewCachedClock creates a CachedClock whose cached timestamp is refreshed by a
+// background goroutine every updateInterval. A non-positive interval defaults to 10ms.
 func NewCachedClock(updateInterval time.Duration) *CachedClock {
 	cc := &CachedClock{stop: make(chan struct{})}
 	if updateInterval <= 0 {
@@ -55,6 +56,7 @@ func NewCachedClock(updateInterval time.Duration) *CachedClock {
 	return cc
 }
 
+// GetNsec returns a pointer to the atomic cached nanoseconds value.
 func (cc *CachedClock) GetNsec() *atomic.Int64 {
 	return &cc.nsec
 }
@@ -64,11 +66,13 @@ func (cc *CachedClock) GetNsecValue() int64 {
 	return cc.nsec.Load()
 }
 
+// Now returns the cached time as a time.Time.
 func (cc *CachedClock) Now() time.Time {
 	n := cc.nsec.Load()
 	return time.Unix(0, n)
 }
 
+// Close stops the background refresh goroutine. It is safe to call multiple times.
 func (cc *CachedClock) Close() {
 	if cc.stopped.CompareAndSwap(false, true) {
 		close(cc.stop)
@@ -83,7 +87,7 @@ var (
 	globalCachedClockOnce sync.Once
 )
 
-// getGlobalCachedClock returns the singleton cached clock instance
+// GetGlobalCachedClock returns the singleton cached clock instance.
 func GetGlobalCachedClock() *CachedClock {
 	globalCachedClockOnce.Do(func() {
 		globalCachedClock = NewCachedClock(10 * time.Millisecond)

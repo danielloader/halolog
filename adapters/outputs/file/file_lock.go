@@ -26,8 +26,10 @@ import (
 )
 
 var (
+	// ErrLockTimeout is returned when the lock cannot be acquired within the timeout.
 	ErrLockTimeout = errors.New("failed to acquire lock: timeout")
-	ErrLockHeld    = errors.New("lock held by another process")
+	// ErrLockHeld is returned when the lock is currently held by another process.
+	ErrLockHeld = errors.New("lock held by another process")
 )
 
 // fileLockImpl is the platform-specific implementation
@@ -37,7 +39,9 @@ type fileLockImpl interface {
 	TryLock(file *os.File) error
 }
 
-// FileLock provides cross-platform file locking
+// FileLock provides cross-platform file locking.
+//
+//nolint:revive // exported name intentionally kept for a stable public API; renaming to Lock would break importers
 type FileLock struct {
 	path     string
 	lockFile *os.File
@@ -94,14 +98,14 @@ func (fl *FileLock) TryLock() error {
 
 	// Try platform-specific lock
 	if err := fl.impl.TryLock(lockFile); err != nil {
-		lockFile.Close()
+		_ = lockFile.Close()
 		return err
 	}
 
 	// Write PID for stale lock detection
 	if err := fl.writePID(lockFile); err != nil {
-		fl.impl.Unlock(lockFile)
-		lockFile.Close()
+		_ = fl.impl.Unlock(lockFile)
+		_ = lockFile.Close()
 		return fmt.Errorf("failed to write PID: %w", err)
 	}
 
@@ -135,10 +139,10 @@ func (fl *FileLock) Unlock() error {
 		return err
 	}
 
-	// Close and remove lock file
-	fl.lockFile.Close()
-	os.Remove(fl.path + ".lock")
-	os.Remove(fl.pidFile)
+	// Close and remove lock file (removal is best-effort cleanup)
+	_ = fl.lockFile.Close()
+	_ = os.Remove(fl.path + ".lock")
+	_ = os.Remove(fl.pidFile)
 
 	fl.lockFile = nil
 	fl.acquired = false
@@ -148,10 +152,13 @@ func (fl *FileLock) Unlock() error {
 // writePID writes current process ID to lock file
 func (fl *FileLock) writePID(file *os.File) error {
 	pid := utils.FormatIntWithPrefix("", os.Getpid()) + "\n"
-	file.Truncate(0)
-	file.Seek(0, 0)
-	_, err := file.WriteString(pid)
-	if err != nil {
+	if err := file.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		return err
+	}
+	if _, err := file.WriteString(pid); err != nil {
 		return err
 	}
 	return file.Sync()

@@ -56,12 +56,8 @@ func (m *samplingMockAdapter) SetFormatter(formatter types.Formatter) {
 }
 
 func (m *samplingMockAdapter) WriteZero(entry *types.LogEntry) error {
-	fields := make([]types.TypedField, 0, len(entry.Fields))
-	for _, field := range entry.Fields {
-		fields = append(fields, field)
-	}
 	regularEntry := &types.LogEntry{
-		Level:     types.LogLevel(entry.Level),
+		Level:     entry.Level,
 		Message:   entry.Message,
 		Component: entry.Component,
 		Fields:    entry.Fields,
@@ -481,7 +477,7 @@ func TestSampling_CountBased_Integration(t *testing.T) {
 			Message: utils.FormatIntWithPrefix("message", i),
 		}
 		if manager.ShouldSample(entry) {
-			mock.Write(entry)
+			_ = mock.Write(entry)
 		}
 	}
 
@@ -509,7 +505,7 @@ func TestSampling_ProbabilityBased_Integration(t *testing.T) {
 			Message: utils.FormatIntWithPrefix("message", i),
 		}
 		if manager.ShouldSample(entry) {
-			mock.Write(entry)
+			_ = mock.Write(entry)
 		}
 	}
 
@@ -534,12 +530,12 @@ func TestSampling_LevelBased_Integration(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		errorEntry := &types.LogEntry{Level: types.ErrorLevel, Message: "error"}
 		if manager.ShouldSample(errorEntry) {
-			mock.Write(errorEntry)
+			_ = mock.Write(errorEntry)
 		}
 
 		infoEntry := &types.LogEntry{Level: types.InfoLevel, Message: "info"}
 		if manager.ShouldSample(infoEntry) {
-			mock.Write(infoEntry)
+			_ = mock.Write(infoEntry)
 		}
 	}
 
@@ -568,7 +564,7 @@ func TestSampling_TimeBased_Integration(t *testing.T) {
 			Message: utils.FormatIntWithPrefix("message", i),
 		}
 		if manager.ShouldSample(entry) {
-			mock.Write(entry)
+			_ = mock.Write(entry)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -607,7 +603,7 @@ func TestSampling_ConcurrentAccess_CountBased(t *testing.T) {
 					Message: utils.FormatTwoIntsSimple("concurrent", id, '-', j, ""),
 				}
 				if manager.ShouldSample(entry) {
-					mock.Write(entry)
+					_ = mock.Write(entry)
 				}
 			}
 		}(i)
@@ -646,7 +642,7 @@ func TestSampling_ConcurrentAccess_TimeBased(t *testing.T) {
 					Message: utils.FormatTwoIntsSimple("concurrent", id, '-', j, ""),
 				}
 				if manager.ShouldSample(entry) {
-					mock.Write(entry)
+					_ = mock.Write(entry)
 				}
 			}
 		}(i)
@@ -685,11 +681,11 @@ func TestSampling_ConcurrentAccess_LevelBased(t *testing.T) {
 				// Mix of info and error
 				if j%2 == 0 {
 					if manager.ShouldSample(&types.LogEntry{Level: types.InfoLevel, Message: "info"}) {
-						mock.Write(&types.LogEntry{Level: types.InfoLevel, Message: "info"})
+						_ = mock.Write(&types.LogEntry{Level: types.InfoLevel, Message: "info"})
 					}
 				} else {
 					if manager.ShouldSample(&types.LogEntry{Level: types.ErrorLevel, Message: "error"}) {
-						mock.Write(&types.LogEntry{Level: types.ErrorLevel, Message: "error"})
+						_ = mock.Write(&types.LogEntry{Level: types.ErrorLevel, Message: "error"})
 					}
 				}
 			}

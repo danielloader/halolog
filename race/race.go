@@ -27,7 +27,9 @@ import (
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
-// RacePrevention provides comprehensive race condition prevention mechanisms
+// RacePrevention provides comprehensive race condition prevention mechanisms.
+//
+//nolint:revive // "Race" prefix is the domain name of this public package's central type; renaming to Prevention would lose meaning and break external API consumers.
 type RacePrevention struct {
 	// Atomic state for lock-free operations
 	state      atomic.Uint64
@@ -62,7 +64,9 @@ type ThreadState struct {
 	readCount   atomic.Uint64
 }
 
-// RaceDetector interface for pluggable race detection strategies
+// RaceDetector interface for pluggable race detection strategies.
+//
+//nolint:revive // "Race" prefix names the domain of this public detection interface; renaming to Detector would be ambiguous and break external API consumers.
 type RaceDetector interface {
 	CheckRace(threadID uint64, operation string, data unsafe.Pointer) bool
 	RecordAccess(threadID uint64, operation string, data unsafe.Pointer)
@@ -102,6 +106,7 @@ type BasicRaceDetector struct {
 	raceCount atomic.Uint64
 }
 
+// AccessRecord captures a single memory access observed by a race detector.
 type AccessRecord struct {
 	ThreadID  uint64
 	Timestamp int64
@@ -459,7 +464,9 @@ func (rp *RacePrevention) Reset() {
 	rp.lastAccess.Store(0)
 }
 
-// RacePreventionStats contains comprehensive race prevention statistics
+// RacePreventionStats contains comprehensive race prevention statistics.
+//
+//nolint:revive // "Race" prefix matches the RacePrevention type it reports on; renaming to PreventionStats would break the naming pair and external API consumers.
 type RacePreventionStats struct {
 	TotalRacesDetected uint64
 	SyncOperations     uint64
