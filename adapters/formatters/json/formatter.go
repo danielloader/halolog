@@ -19,6 +19,7 @@
 package json
 
 import (
+	"fmt"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -86,9 +87,10 @@ func (f *Formatter) Format(entry *types.LogEntry, dst []byte) []byte {
 
 	dst = append(dst, '{')
 
-	// Timestamp (FIXED: Use entry.Timestamp.Unix())
+	// Timestamp — the hot path sets TimestampUnix (unix nanos); the wall-clock
+	// Timestamp is only a fallback for paths that populate it instead.
 	dst = append(dst, `"time":"`...)
-	dst = fastAppendTime(dst, entry.Timestamp.Unix())
+	dst = fastAppendTime(dst, entryUnixSeconds(entry))
 	dst = append(dst, '"')
 
 	// Level
@@ -108,9 +110,17 @@ func (f *Formatter) Format(entry *types.LogEntry, dst []byte) []byte {
 		dst = f.formatCaller(dst, entry)
 	}
 
-	// Fields
-	if len(entry.Fields) > 0 {
-		dst = f.formatFields(dst, entry)
+	// Fields — WithField stores into StaticFields (the fast path); the dynamic
+	// Fields slice holds overflow and map-style fields. Both must be emitted.
+	n := entry.StaticFieldCount
+	if n > len(entry.StaticFields) {
+		n = len(entry.StaticFields)
+	}
+	for i := 0; i < n; i++ {
+		dst = appendField(dst, &entry.StaticFields[i])
+	}
+	for i := range entry.Fields {
+		dst = appendField(dst, &entry.Fields[i])
 	}
 
 	return append(dst, '}', '\n')
@@ -165,20 +175,106 @@ func (f *Formatter) formatCaller(dst []byte, entry *types.LogEntry) []byte {
 	return append(dst, '"')
 }
 
-func (f *Formatter) formatFields(dst []byte, entry *types.LogEntry) []byte {
-	for _, field := range entry.Fields {
-		dst = append(dst, ',', '"')
-		dst = append(dst, field.Key...)
-		dst = append(dst, `":"`...)
-
-		if s, ok := field.Value.(string); ok {
-			dst = appendJSONString(dst, s) // FIXED: With escaping
-		} else {
-			dst = append(dst, "null"...)
-		}
-		dst = append(dst, '"')
+// entryUnixSeconds resolves the entry's timestamp to unix seconds, preferring
+// the hot-path TimestampUnix (unix nanos) and falling back to the wall-clock
+// Timestamp only when TimestampUnix was not populated.
+func entryUnixSeconds(entry *types.LogEntry) int64 {
+	if entry.TimestampUnix != 0 {
+		return entry.TimestampUnix / int64(time.Second)
 	}
-	return dst
+	if !entry.Timestamp.IsZero() {
+		return entry.Timestamp.Unix()
+	}
+	return 0
+}
+
+// appendField appends `,"key":value` for a single field, emitting the value with
+// its correct JSON type (numbers and bools unquoted). It prefers the
+// boxing-free typed Val; when Val is unset (KindUnknown, as produced by the
+// interface-based WithField API) it falls back to the legacy Value interface{}.
+func appendField(dst []byte, field *types.TypedFieldData) []byte {
+	dst = append(dst, ',', '"')
+	dst = appendJSONString(dst, field.Key)
+	dst = append(dst, '"', ':')
+
+	switch field.Val.Kind {
+	case types.KindString:
+		dst = append(dst, '"')
+		dst = appendJSONString(dst, field.Val.String)
+		return append(dst, '"')
+	case types.KindInt, types.KindInt64:
+		return strconv.AppendInt(dst, field.Val.Int64, 10)
+	case types.KindFloat64:
+		return strconv.AppendFloat(dst, field.Val.Float64, 'g', -1, 64)
+	case types.KindBool:
+		if field.Val.Int64 != 0 {
+			return append(dst, "true"...)
+		}
+		return append(dst, "false"...)
+	case types.KindError:
+		dst = append(dst, '"')
+		if field.Val.String != "" {
+			dst = appendJSONString(dst, field.Val.String)
+		} else if e, ok := field.Val.Any.(error); ok && e != nil {
+			dst = appendJSONString(dst, e.Error())
+		}
+		return append(dst, '"')
+	case types.KindAny:
+		return appendAny(dst, field.Val.Any)
+	default: // KindUnknown → legacy interface value
+		return appendAny(dst, field.Value)
+	}
+}
+
+// appendAny renders an interface{} value as a correctly-typed JSON value.
+// Common scalar types stay allocation-free; only genuinely unknown types fall
+// back to fmt (a rare path).
+func appendAny(dst []byte, v interface{}) []byte {
+	switch x := v.(type) {
+	case nil:
+		return append(dst, "null"...)
+	case string:
+		dst = append(dst, '"')
+		dst = appendJSONString(dst, x)
+		return append(dst, '"')
+	case bool:
+		if x {
+			return append(dst, "true"...)
+		}
+		return append(dst, "false"...)
+	case int:
+		return strconv.AppendInt(dst, int64(x), 10)
+	case int8:
+		return strconv.AppendInt(dst, int64(x), 10)
+	case int16:
+		return strconv.AppendInt(dst, int64(x), 10)
+	case int32:
+		return strconv.AppendInt(dst, int64(x), 10)
+	case int64:
+		return strconv.AppendInt(dst, x, 10)
+	case uint:
+		return strconv.AppendUint(dst, uint64(x), 10)
+	case uint8:
+		return strconv.AppendUint(dst, uint64(x), 10)
+	case uint16:
+		return strconv.AppendUint(dst, uint64(x), 10)
+	case uint32:
+		return strconv.AppendUint(dst, uint64(x), 10)
+	case uint64:
+		return strconv.AppendUint(dst, x, 10)
+	case float32:
+		return strconv.AppendFloat(dst, float64(x), 'g', -1, 32)
+	case float64:
+		return strconv.AppendFloat(dst, x, 'g', -1, 64)
+	case error:
+		dst = append(dst, '"')
+		dst = appendJSONString(dst, x.Error())
+		return append(dst, '"')
+	default:
+		dst = append(dst, '"')
+		dst = appendJSONString(dst, fmt.Sprintf("%v", x))
+		return append(dst, '"')
+	}
 }
 
 // FIXED: Fast JSON string with escaping - high-performance for common cases
