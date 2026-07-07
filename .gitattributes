@@ -1,0 +1,6 @@
+# Normalize line endings: LF in the repo and working tree for portable tooling.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.zip binary
+*.exe binary

@@ -1,0 +1,31 @@
+# Per-module release workflow. Copy to <module>/.github/workflows/release.yml.
+# Runs goreleaser on v* tags (libraries publish changelog+release; CLIs also build binaries).
+#
+# @author Admilson B. F. Cossa
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GOWORK: off
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

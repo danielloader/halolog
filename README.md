@@ -81,9 +81,10 @@ logger := halolog.GetLoggerWithConfig("my-app", cfg)
 ### Console
 
 ```go
-import "github.com/go-gen-ecosystem/halolog/core"
+import "github.com/go-gen-ecosystem/halolog/adapters/outputs/console"
 
-adapter := core.NewConsoleAdapter(os.Stdout, nil)
+adapter := console.New()                          // writes to os.Stdout
+// adapter := console.NewWithWriter(w, formatter) // custom writer / formatter
 ```
 
 ### File with Rotation
@@ -315,9 +316,9 @@ func BenchmarkLogging(b *testing.B) {
     b.ReportAllocs()
 
     for i := 0; i < b.N; i++ {
-        logger.Info("Benchmark message").
-            WithField("iteration", i).
-            WithField("data", "test data")
+        logger.WithField("iteration", i).
+            WithField("data", "test data").
+            Info("Benchmark message")
     }
 }
 ```
