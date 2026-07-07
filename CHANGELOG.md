@@ -6,7 +6,7 @@
 All notable changes to HaloLog are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.0.0] - 2026-07-07
 
 First public release: a zero-allocation structured logging framework for Go.
 

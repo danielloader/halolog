@@ -167,9 +167,11 @@ func validateLogLevel(level string) error {
 	}
 }
 
-// LoadFromFile loads configuration from a file (YAML or JSON)
+// LoadFromFile loads configuration from a file (YAML or JSON). The path is
+// supplied explicitly by the caller — reading exactly the file they name is the
+// documented contract of this API — so the G304 file-inclusion flag is expected.
 func (c *ConfigLoader) LoadFromFile(path string) (*HaloLogConfig, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: caller-supplied config path is the intended API contract
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}

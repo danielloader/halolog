@@ -1,6 +1,6 @@
 # HaloLog - Zero-Allocation Logging Framework for Go
 
-[![Go Version](https://img.shields.io/badge/go-1.21+-blue.svg)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/go-1.24+-blue.svg)](https://golang.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Performance](https://img.shields.io/badge/performance-15M%20logs%2Fsec-red.svg)](docs/PERFORMANCE.md)
 [![Zero Allocation](<https://img.shields.io/badge/allocation-zero%20(0%20B%2Fop)-brightgreen.svg>)](docs/PERFORMANCE.md)
