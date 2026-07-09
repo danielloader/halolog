@@ -1,0 +1,69 @@
+# @author Admilson B. F. Cossa
+#
+# Benchmark gate on a quiet Linux runner. Two jobs:
+#   - alloc-guard (HARD GATE): every committed zero-allocation guard must hold
+#     on linux/amd64 — a single hot-path allocation fails the build.
+#   - bench (REPORT): runs the co-measured multi-logger comparison and the
+#     HaloLog-specific suites, publishes the numbers to the job summary and as
+#     an artifact so regressions are visible per commit. Reported, not gated:
+#     shared runners have noisy absolute timings, so gating is on allocations
+#     (deterministic), while ns/op trends are reviewed by humans.
+name: bench
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  alloc-guard:
+    name: zero-alloc guards (hard gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - name: Zero-allocation guards
+        env:
+          GOWORK: off
+        run: |
+          go test ./core -run 'TestZeroAlloc' -count=1 -v
+          go test ./adapters/formatters/json -run 'TestHeaderZeroAlloc|TestFormatterGolden|TestDirectMatchesFormat' -count=1 -v
+
+  bench:
+    name: co-measured benchmarks (report)
+    runs-on: ubuntu-latest
+    needs: alloc-guard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - name: Run benchmark suite
+        working-directory: benchmarks
+        env:
+          GOWORK: off
+        run: |
+          go test -run=XXX \
+            -bench='BenchmarkDefaults|BenchmarkNoTimestamp|BenchmarkClockCost|BenchmarkAsyncCallerLatency|BenchmarkKeyed|BenchmarkKeyIsolation' \
+            -benchmem -benchtime=1s -count=6 -cpu=1 -timeout=30m | tee bench.txt
+      - name: Publish to job summary
+        working-directory: benchmarks
+        run: |
+          {
+            echo '### HaloLog benchmarks (ubuntu-latest, count=6, cpu=1)'
+            echo '```'
+            cat bench.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.sha }}
+          path: benchmarks/bench.txt
