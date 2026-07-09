@@ -13,28 +13,26 @@
 package json
 
 import (
-	"time"
-
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
-// AppendHeader writes the object open through the message field, with no trailing
-// comma or closing brace: `{"time":"..","level":"..","message":".."`. It matches
-// the prefix Formatter.Format emits exactly. tsUnixNanos is the entry timestamp
-// in unix nanoseconds as the logger clock reports it.
-func AppendHeader(dst []byte, tsUnixNanos int64, level types.LogLevel, msg string) []byte {
-	dst = append(dst, '{')
-	dst = append(dst, `"time":"`...)
-	dst = fastAppendTime(dst, tsUnixNanos/int64(time.Second))
-	dst = append(dst, '"')
-	lvl := level
-	if lvl > 6 {
-		lvl = 6
-	}
-	dst = append(dst, levelCache[lvl]...)
+// appendHeaderWith renders the line prefix `{"time":..,"level":..,"message":..`
+// using the given header strategy. It is the single header renderer shared by
+// Formatter.Format and the direct-append path, so the two stay byte-identical
+// by construction.
+func appendHeaderWith(dst []byte, ha headerAppender, tsUnixNanos int64, level types.LogLevel, msg string) []byte {
+	dst = ha(dst, tsUnixNanos, level)
 	dst = append(dst, `,"message":"`...)
 	dst = appendJSONString(dst, msg)
 	return append(dst, '"')
+}
+
+// AppendHeader writes the object open through the message field, with no trailing
+// comma or closing brace: `{"time":"..","level":"..","message":".."`, at the
+// default second precision. tsUnixNanos is the entry timestamp in unix
+// nanoseconds as the logger clock reports it.
+func AppendHeader(dst []byte, tsUnixNanos int64, level types.LogLevel, msg string) []byte {
+	return appendHeaderWith(dst, appendHeaderSecond, tsUnixNanos, level, msg)
 }
 
 // AppendCloser writes the object close and trailing newline that terminate a line.
@@ -56,9 +54,10 @@ func AppendField(dst []byte, kd *types.FieldKey, key string, v types.FieldValue)
 // byte-identical to Format's output (guarded by TestDirectMatchesFormat).
 var _ types.DirectFieldEncoder = (*Formatter)(nil)
 
-// AppendHeader implements types.DirectFieldEncoder.
+// AppendHeader implements types.DirectFieldEncoder using this formatter's
+// configured timestamp precision.
 func (f *Formatter) AppendHeader(dst []byte, tsUnixNanos int64, level types.LogLevel, msg string) []byte {
-	return AppendHeader(dst, tsUnixNanos, level, msg)
+	return appendHeaderWith(dst, f.appendHeader, tsUnixNanos, level, msg)
 }
 
 // AppendField implements types.DirectFieldEncoder.

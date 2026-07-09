@@ -21,15 +21,11 @@ package json
 import (
 	"fmt"
 	"strconv"
-	"sync/atomic"
-	"time"
 
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
 const (
-	timestampLen  = 32
-	cacheLineSize = 64
 	// smallIntCacheSize bounds the pre-rendered small-integer string cache. It
 	// covers 0..511, which spans the common cases (small counts, ports, and the
 	// full HTTP status-code range) so those values format with a single copy
@@ -37,18 +33,7 @@ const (
 	smallIntCacheSize = 512
 )
 
-// FIXED: Atomic pointer to immutable cache
-type timestampCache struct {
-	lastUnix int64
-	cached   [timestampLen]byte
-}
-
-var globalTsCachePtr atomic.Value // stores *timestampCache
-
 func init() {
-	// Initialize cache
-	globalTsCachePtr.Store(&timestampCache{})
-
 	// Pre-compute small ints (correct for any width, e.g. 3-digit codes).
 	for i := 0; i < smallIntCacheSize; i++ {
 		smallInts[i] = strconv.Itoa(i)
@@ -89,13 +74,27 @@ var levelCache = [7]string{
 }
 
 // Formatter is a zero-allocation formatter that renders log entries as JSON.
+// Its timestamp precision is fixed at construction: the chosen strategy is
+// stored as a function value, so the hot path never branches on precision.
 type Formatter struct {
-	_ [64]byte // Padding
+	appendHeader headerAppender
+	_            [56]byte // Pad to a cache line
 }
 
-// NewJsonFormatter creates a new JSON formatter.
+// NewJsonFormatter creates a JSON formatter with second-precision timestamps
+// (the fastest configuration — headers are served from the fused cache).
 func NewJsonFormatter() *Formatter {
-	return &Formatter{}
+	return NewJsonFormatterWithPrecision(PrecisionSecond)
+}
+
+// NewJsonFormatterWithPrecision creates a JSON formatter whose "time" field
+// carries the given fractional resolution. Out-of-range values clamp to
+// PrecisionNano.
+func NewJsonFormatterWithPrecision(p TimePrecision) *Formatter {
+	if p >= precisionCount {
+		p = PrecisionNano
+	}
+	return &Formatter{appendHeader: headerAppenders[p]}
 }
 
 // Format appends the JSON encoding of entry to dst and returns the extended slice.
@@ -106,25 +105,9 @@ func (f *Formatter) Format(entry *types.LogEntry, dst []byte) []byte {
 		return dst
 	}
 
-	dst = append(dst, '{')
-
-	// Timestamp — the hot path sets TimestampUnix (unix nanos); the wall-clock
-	// Timestamp is only a fallback for paths that populate it instead.
-	dst = append(dst, `"time":"`...)
-	dst = fastAppendTime(dst, entryUnixSeconds(entry))
-	dst = append(dst, '"')
-
-	// Level
-	lvl := entry.Level
-	if lvl > 6 {
-		lvl = 6
-	}
-	dst = append(dst, levelCache[lvl]...)
-
-	// Message (FIXED: With JSON escaping)
-	dst = append(dst, `,"message":"`...)
-	dst = appendJSONString(dst, entry.Message)
-	dst = append(dst, '"')
+	// Header (`{"time":..,"level":..,"message":..`) — the exact same rendering
+	// the direct-append fast path uses, so both paths stay byte-identical.
+	dst = appendHeaderWith(dst, f.appendHeader, entryUnixNanos(entry), entry.Level, entry.Message)
 
 	// Caller (FIXED: Cross-platform)
 	if entry.Line >= 0 && entry.File != "" {
@@ -147,37 +130,6 @@ func (f *Formatter) Format(entry *types.LogEntry, dst []byte) []byte {
 	return append(dst, '}', '\n')
 }
 
-// FIXED: Race-free cache with atomic pointer
-//
-//go:inline
-func fastAppendTime(dst []byte, unixSec int64) []byte {
-	cache := globalTsCachePtr.Load().(*timestampCache)
-
-	if unixSec == cache.lastUnix {
-		return append(dst, cache.cached[:25]...)
-	}
-
-	return slowAppendTime(dst, unixSec)
-}
-
-//go:noinline
-func slowAppendTime(dst []byte, unixSec int64) []byte {
-	t := time.Unix(unixSec, 0)
-	var scratch [64]byte
-	b := t.AppendFormat(scratch[:0], "2006-01-02T15:04:05Z07:00")
-
-	if len(b) <= timestampLen {
-		// Create new immutable cache
-		newCache := &timestampCache{lastUnix: unixSec}
-		copy(newCache.cached[:], b)
-
-		// Atomic swap (race-free!)
-		globalTsCachePtr.Store(newCache)
-	}
-
-	return append(dst, b...)
-}
-
 // FIXED: Cross-platform basename
 func (f *Formatter) formatCaller(dst []byte, entry *types.LogEntry) []byte {
 	dst = append(dst, `,"caller":"`...)
@@ -194,19 +146,6 @@ func (f *Formatter) formatCaller(dst []byte, entry *types.LogEntry) []byte {
 	dst = append(dst, ':')
 	dst = appendInt(dst, int64(entry.Line))
 	return append(dst, '"')
-}
-
-// entryUnixSeconds resolves the entry's timestamp to unix seconds, preferring
-// the hot-path TimestampUnix (unix nanos) and falling back to the wall-clock
-// Timestamp only when TimestampUnix was not populated.
-func entryUnixSeconds(entry *types.LogEntry) int64 {
-	if entry.TimestampUnix != 0 {
-		return entry.TimestampUnix / int64(time.Second)
-	}
-	if !entry.Timestamp.IsZero() {
-		return entry.Timestamp.Unix()
-	}
-	return 0
 }
 
 // appendField appends `,"key":value` for a single field, emitting the value with
