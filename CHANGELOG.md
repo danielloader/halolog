@@ -9,6 +9,30 @@ All notable changes to HaloLog are documented here. This project adheres to
 ## [Unreleased]
 
 ### Added
+- **`log/slog` bridge** (`slogbridge`) — adopt HaloLog in slog-first codebases
+  with one line: `slog.SetDefault(slog.New(slogbridge.New(logger)))`. Validated
+  against the standard library conformance suite (`testing/slogtest`); groups are
+  encoded as dot-joined key prefixes; one documented deviation (HaloLog stamps
+  its own clock time on every line, so a zero `Record.Time` is never rendered).
+- **Level-first Line API** — `logger.InfoLine().Str(key, v).WithInt(...).Msg(m)`
+  fixes the level when the line opens, so a disabled level costs a single check:
+  no state acquisition, no field encoding, zero allocations.
+- **Timestamp precision option** — `json.NewJsonFormatterWithPrecision`
+  (second/milli/micro/nano). The strategy is chosen once at construction; every
+  precision renders with zero allocations. Sub-second accuracy is bounded by the
+  cached clock's refresh interval (~10ms by default) — documented, not hidden.
+- **Direct-append fast path** — with a single raw-capable JSON adapter and no
+  masking/sampling, the typed and Line builders encode fields straight to bytes
+  (statically dispatched, zerolog-style); pre-declared keys emit as one memcpy.
+  Output is byte-identical to the capture path (test-pinned) and every other
+  configuration falls back automatically, so masking can never be bypassed.
+- **Fused header cache** — at second precision the entire
+  `{"time":..,"level":..` header is served per (second, level) from a lock-free
+  cache: one memcpy per line.
+- **Benchmark CI** — a Linux workflow gates every zero-allocation guard and
+  publishes the co-measured multi-logger numbers per commit.
+
+
 - **Pre-declared field keys** (`halolog.Key`, typed builder `Str/Int/Bool/…`
   methods) whose JSON escaping is computed once, so the hot path emits a key with
   a single copy and no escaping or lookup — measured ~25% faster than plain string
@@ -25,6 +49,12 @@ All notable changes to HaloLog are documented here. This project adheres to
   the HTTP status range) and the typed and boxed int/uint field paths use it.
 
 ### Fixed
+- **UTC timestamp corruption on cache hits** — the old cache-hit path appended a
+  hardcoded 25 bytes, corrupting 20-byte `"Z"`-suffixed UTC timestamps (it would
+  have fired on any UTC machine). The header engine caches the true length.
+- **Pool memory pinning** — one pathological multi-megabyte line can no longer
+  pin its grown buffer on the per-P pool: retained direct-path buffers are
+  capped at 64KiB.
 - **`adapters/middleware` async use-after-recycle** — the channel-based async
   adapter enqueued a pointer to the caller's pooled entry, which the logger
   recycles immediately, so the background writer could serialize an overwritten

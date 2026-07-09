@@ -92,6 +92,50 @@ logger.Typed().Str(userID, "alice").Str(action, "login").Info("login")
 Rule of thumb: reach for `halolog.Key(...)` in tight, high-frequency logging
 loops; use string keys everywhere else. Neither allocates on the hot path.
 
+### Level-first lines (cheapest disabled logging)
+
+`InfoLine`/`DebugLine`/`WarnLine`/`ErrorLine` fix the level when the line opens,
+so a filtered-out level costs a single check — no state, no encoding, zero
+allocations:
+
+```go
+logger.InfoLine().Str(keyUser, "alice").WithInt("status", 200).Msg("handled")
+logger.DebugLine().WithString("dump", expensive()).Msg("trace") // ~1ns when Debug is off*
+```
+
+\* the level check itself; argument evaluation is still yours to guard.
+
+### Using HaloLog from log/slog
+
+Slog-first codebases switch backends with one line — all existing `slog` call
+sites keep working:
+
+```go
+import "github.com/go-gen-ecosystem/halolog/slogbridge"
+
+slog.SetDefault(slog.New(slogbridge.New(logger)))
+slog.Info("handled", "status", 200, slog.Group("req", "id", "abc"))
+// {"time":"...","level":"INFO","message":"handled","status":200,"req.id":"abc"}
+```
+
+The bridge passes the standard library's `testing/slogtest` conformance suite
+(groups are dot-joined; HaloLog stamps its own clock time on every line).
+
+### Timestamp precision
+
+The JSON formatter renders whole seconds by default (fastest — the header is a
+single cached memcpy). For trace correlation, pick a sub-second resolution:
+
+```go
+f := json.NewJsonFormatterWithPrecision(json.PrecisionMilli) // .123
+// PrecisionSecond | PrecisionMilli | PrecisionMicro | PrecisionNano
+```
+
+Every precision is zero-allocation. Honest bound: the default cached clock
+refreshes every 10ms, so displayed sub-second digits carry up to ~10ms of
+wall-clock skew — sufficient for in-service ordering; run a finer
+`cache.NewCachedClock` interval if you need tighter accuracy.
+
 ### Advanced Configuration
 
 ```go
