@@ -20,6 +20,7 @@ package core
 import (
 	"sync"
 
+	jsonfmt "github.com/go-gen-ecosystem/halolog/adapters/formatters/json"
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
@@ -30,16 +31,24 @@ type perPState struct {
 	fieldBuf [64]types.TypedFieldData // Buffer for entry fields
 	_        [64 - 8]byte             // Padding to cache line
 
-	// Direct-append fast path (see fluent_typed.go dispatch). directEnc is
-	// selected per line at first-field time; when non-nil the builder encodes
-	// fields straight into directFields instead of capturing TypedFieldData.
-	// Both slices keep their (possibly grown) heap backing across reuses so the
-	// path stays zero-allocation after warmup.
-	directEnc    types.DirectFieldEncoder
+	// Direct-append fast path (see fluent_typed.go dispatch). directJSON is
+	// selected per line at acquisition: the adapter's current direct encoder is
+	// asserted to the CONCRETE JSON formatter so every per-field call below is
+	// statically dispatched (and inlinable) — the same specialization precedent
+	// as Logger.discardAdapter. A non-JSON DirectFieldEncoder simply keeps the
+	// capture path (still correct). Both slices keep their heap backing across
+	// reuses so the path stays zero-allocation after warmup.
+	directJSON   *jsonfmt.Formatter
 	directFields []byte // encoded `,"k":v` members for the current line
 	lineBuf      []byte // scratch for assembling the full line
-	directArr    [1024]byte
-	lineArr      [1280]byte
+
+	// Level-first Line API state (see line.go): the owning logger and the
+	// line's level, fixed when the line is opened.
+	owner     *Logger
+	lineLevel types.LogLevel
+
+	directArr [1024]byte
+	lineArr   [1280]byte
 }
 
 // globalPerPPool is the per-P state pool
@@ -65,7 +74,7 @@ type perPPool struct {
 func (p *perPPool) get() *perPState {
 	s := p.pool.Get().(*perPState)
 	s.entry.StaticFieldCount = 0
-	s.directEnc = nil
+	s.directJSON = nil
 	s.directFields = s.directFields[:0]
 	// Restore the static-fields slice to its full backing buffer. A prior
 	// dispatch may have resliced it to [:count]; without this, the next borrower
@@ -88,6 +97,7 @@ const maxRetainedLineBytes = 64 << 10
 //go:inline
 func (p *perPPool) put(state *perPState) {
 	state.entry.Reset() // Safe reset
+	state.owner = nil   // do not pin a Logger via the pool
 	if cap(state.lineBuf) > maxRetainedLineBytes {
 		state.lineBuf = state.lineArr[:0]
 	}

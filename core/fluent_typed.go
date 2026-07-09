@@ -18,6 +18,7 @@
 package core
 
 import (
+	jsonfmt "github.com/go-gen-ecosystem/halolog/adapters/formatters/json"
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
@@ -54,35 +55,57 @@ func (l *Logger) Typed() TypedFieldBuilder {
 //
 //go:inline
 func (fb TypedFieldBuilder) acquire() TypedFieldBuilder {
-	fb.state = globalPerPPool.get()
-	if da := fb.logger.directAdapter; da != nil {
-		fb.state.directEnc = da.DirectEncoder()
-	}
+	fb.state = acquireState(fb.logger)
 	return fb
 }
 
-// withTyped acquires the pooled state on the first field and writes the typed
-// value directly into it. On the direct fast path the field is encoded to JSON
-// bytes immediately (zerolog-style, no struct capture); otherwise it is stored
-// as a TypedFieldData for the formatter. Both paths allocate nothing.
+// acquireState fetches the pooled per-P state for a new line and selects its
+// encoding mode: the adapter's current direct encoder is asserted to the
+// CONCRETE JSON formatter so every subsequent per-field call is statically
+// dispatched (jsonfmt package functions — no interface calls on the hot loop).
+// Querying per line means a runtime formatter swap safely flips later lines
+// back to the capture path; a non-JSON encoder also keeps the capture path.
+//
+//go:inline
+func acquireState(l *Logger) *perPState {
+	s := globalPerPPool.get()
+	if da := l.directAdapter; da != nil {
+		s.directJSON, _ = da.DirectEncoder().(*jsonfmt.Formatter)
+	}
+	return s
+}
+
+// addField writes one field into the line, shared by the typed builder and the
+// level-first Line API (kd nil ⇒ plain string key). On the direct fast path the
+// field is encoded to JSON bytes immediately via a static package call
+// (zerolog-style, no struct capture); otherwise it is captured as a
+// TypedFieldData for the formatter. Both paths allocate nothing.
+//
+//go:inline
+func addField(s *perPState, kd *types.FieldKey, key string, val types.FieldValue) {
+	if s.directJSON != nil {
+		s.directFields = jsonfmt.AppendField(s.directFields, kd, key, val)
+		return
+	}
+	entry := &s.entry
+	n := entry.StaticFieldCount
+	if n < len(entry.StaticFields) {
+		entry.StaticFields[n] = types.TypedFieldData{Key: key, KeyDesc: kd, Val: val}
+		entry.StaticFieldCount = n + 1
+	} else {
+		entry.Fields = append(entry.Fields, types.TypedFieldData{Key: key, KeyDesc: kd, Val: val})
+	}
+}
+
+// withTyped acquires the pooled state on the first field and adds a
+// string-keyed typed value.
 //
 //go:inline
 func (fb TypedFieldBuilder) withTyped(key string, val types.FieldValue) TypedFieldBuilder {
 	if fb.state == nil {
 		fb = fb.acquire()
 	}
-	if enc := fb.state.directEnc; enc != nil {
-		fb.state.directFields = enc.AppendField(fb.state.directFields, nil, key, val)
-		return fb
-	}
-	entry := &fb.state.entry
-	n := entry.StaticFieldCount
-	if n < len(entry.StaticFields) {
-		entry.StaticFields[n] = types.TypedFieldData{Key: key, Val: val}
-		entry.StaticFieldCount = n + 1
-	} else {
-		entry.Fields = append(entry.Fields, types.TypedFieldData{Key: key, Val: val})
-	}
+	addField(fb.state, nil, key, val)
 	return fb
 }
 
@@ -121,6 +144,14 @@ func (fb TypedFieldBuilder) WithBool(key string, value bool) TypedFieldBuilder {
 	return fb.withTyped(key, types.BoolValue(value))
 }
 
+// WithAny adds an arbitrary value under a plain string key. Prefer the typed
+// setters on hot paths — Any values box through an interface.
+//
+//go:inline
+func (fb TypedFieldBuilder) WithAny(key string, value interface{}) TypedFieldBuilder {
+	return fb.withTyped(key, types.AnyValue(value))
+}
+
 // WithError adds an error field without interface{} boxing. A nil error is a
 // no-op.
 //
@@ -141,20 +172,9 @@ func (fb TypedFieldBuilder) withKeyed(key *types.FieldKey, val types.FieldValue)
 	if fb.state == nil {
 		fb = fb.acquire()
 	}
-	if enc := fb.state.directEnc; enc != nil {
-		// Fastest path in the logger: the pre-escaped `,"key":` fragment is a
-		// single memcpy — no key escaping, no struct capture.
-		fb.state.directFields = enc.AppendField(fb.state.directFields, key, key.Name, val)
-		return fb
-	}
-	entry := &fb.state.entry
-	n := entry.StaticFieldCount
-	if n < len(entry.StaticFields) {
-		entry.StaticFields[n] = types.TypedFieldData{Key: key.Name, KeyDesc: key, Val: val}
-		entry.StaticFieldCount = n + 1
-	} else {
-		entry.Fields = append(entry.Fields, types.TypedFieldData{Key: key.Name, KeyDesc: key, Val: val})
-	}
+	// Fastest path in the logger: on the direct route the pre-escaped `,"key":`
+	// fragment is a single memcpy — no key escaping, no struct capture.
+	addField(fb.state, key, key.Name, val)
 	return fb
 }
 
@@ -264,28 +284,36 @@ func (fb TypedFieldBuilder) Error(msg string) {
 //
 //go:inline
 func (fb TypedFieldBuilder) dispatch(level types.LogLevel, msg string) {
-	if level < fb.logger.Level() {
-		globalPerPPool.put(fb.state)
+	dispatchLine(fb.logger, fb.state, level, msg)
+}
+
+// dispatchLine renders the accumulated line and returns the state to the pool.
+// It is shared by the typed builder and the level-first Line API.
+func dispatchLine(l *Logger, s *perPState, level types.LogLevel, msg string) {
+	if level < l.Level() {
+		globalPerPPool.put(s)
 		return
 	}
 
 	// Direct fast path: fields are already encoded bytes; assemble
 	// header + fields + closer in the pooled line buffer and hand the finished
-	// line to the raw writer. Eligibility (see NewLogger) guarantees masking and
-	// sampling are off, so no transform is skipped.
-	if enc := fb.state.directEnc; enc != nil {
-		line := enc.AppendHeader(fb.state.lineBuf[:0], fb.logger.clock.GetNsecValue(), level, msg)
-		line = append(line, fb.state.directFields...)
-		line = enc.AppendCloser(line)
-		fb.state.lineBuf = line // retain growth for reuse
-		_ = fb.logger.rawWriter.WriteRaw(line)
-		if fb.logger.metrics != nil {
-			fb.logger.metrics.counts[level].Add(1)
+	// line to the raw writer. Every call here is statically dispatched on the
+	// concrete JSON formatter. Eligibility (see NewLogger) guarantees masking
+	// and sampling are off, so no transform is skipped.
+	if f := s.directJSON; f != nil {
+		line := f.AppendHeader(s.lineBuf[:0], l.clock.GetNsecValue(), level, msg)
+		line = append(line, s.directFields...)
+		line = jsonfmt.AppendCloser(line)
+		s.lineBuf = line // retain growth for reuse
+		_ = l.rawWriter.WriteRaw(line)
+		if l.metrics != nil {
+			l.metrics.counts[level].Add(1)
 		}
-		globalPerPPool.put(fb.state)
+		globalPerPPool.put(s)
 		return
 	}
 
+	fb := TypedFieldBuilder{logger: l, state: s}
 	entry := &fb.state.entry
 	entry.Level = level
 	entry.Message = msg
