@@ -66,6 +66,15 @@ type Logger struct {
 	// Optional features (nil if not configured)
 	sampler types.Sampler
 	metrics *metricsCollector
+
+	// Direct-append fast path (both non-nil only when the sole adapter accepts
+	// raw lines and can expose a direct encoder, and no per-entry transform
+	// such as masking or sampling is configured — see NewLogger). The encoder
+	// itself is re-queried per line via directAdapter so a formatter swap
+	// safely disables the path. SECURITY INVARIANT: masking configured ⇒ this
+	// stays nil, so the fast path can never bypass PII masking.
+	rawWriter     types.RawWriter
+	directAdapter types.DirectCapableAdapter
 }
 
 // metricsCollector tracks logging metrics.
@@ -115,6 +124,19 @@ func NewLogger(config Config) *Logger {
 
 	if config.EnableMetrics {
 		l.metrics = &metricsCollector{}
+	}
+
+	// Direct-append eligibility: exactly one non-discard adapter that accepts
+	// raw lines and can expose a direct encoder, with no per-entry transform
+	// (masking, sampling) configured. Anything else keeps the capture path.
+	if len(config.Adapters) == 1 && l.discardAdapter == nil &&
+		!l.enableMasking && l.sampler == nil {
+		if rw, ok := config.Adapters[0].(types.RawWriter); ok {
+			if dc, ok := config.Adapters[0].(types.DirectCapableAdapter); ok {
+				l.rawWriter = rw
+				l.directAdapter = dc
+			}
+		}
 	}
 
 	// Build hot state

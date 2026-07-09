@@ -214,44 +214,53 @@ func entryUnixSeconds(entry *types.LogEntry) int64 {
 // boxing-free typed Val; when Val is unset (KindUnknown, as produced by the
 // interface-based WithField API) it falls back to the legacy Value interface{}.
 func appendField(dst []byte, field *types.TypedFieldData) []byte {
-	// Emit the `,"key":` prefix. A pre-declared FieldKey carries its own
-	// pre-escaped fragment and is emitted with a single copy (no lookup). A plain
-	// string key is escaped inline: for the short keys typical of logging this is
-	// cheaper than a per-field map lookup would be.
-	if kd := field.KeyDesc; kd != nil && len(kd.JSONFragment) > 0 {
-		dst = append(dst, kd.JSONFragment...)
-	} else {
-		dst = append(dst, ',', '"')
-		dst = appendJSONString(dst, field.Key)
-		dst = append(dst, '"', ':')
-	}
+	dst = appendKeyPrefix(dst, field.KeyDesc, field.Key)
+	return appendValue(dst, &field.Val, field.Value)
+}
 
-	switch field.Val.Kind {
+// appendKeyPrefix emits the `,"key":` member prefix. A pre-declared FieldKey
+// carries its own pre-escaped fragment and is emitted with a single copy (no
+// escaping). A plain string key is escaped inline: for the short keys typical of
+// logging this is cheaper than a per-field map lookup would be.
+func appendKeyPrefix(dst []byte, kd *types.FieldKey, key string) []byte {
+	if kd != nil && len(kd.JSONFragment) > 0 {
+		return append(dst, kd.JSONFragment...)
+	}
+	dst = append(dst, ',', '"')
+	dst = appendJSONString(dst, key)
+	return append(dst, '"', ':')
+}
+
+// appendValue emits the JSON encoding of a field value. legacy carries the
+// interface value for the KindUnknown/WithField path. The value is taken by
+// pointer to avoid copying the FieldValue on the hot path.
+func appendValue(dst []byte, v *types.FieldValue, legacy interface{}) []byte {
+	switch v.Kind {
 	case types.KindString:
 		dst = append(dst, '"')
-		dst = appendJSONString(dst, field.Val.String)
+		dst = appendJSONString(dst, v.String)
 		return append(dst, '"')
 	case types.KindInt, types.KindInt64:
-		return appendInt(dst, field.Val.Int64)
+		return appendInt(dst, v.Int64)
 	case types.KindFloat64:
-		return strconv.AppendFloat(dst, field.Val.Float64, 'g', -1, 64)
+		return strconv.AppendFloat(dst, v.Float64, 'g', -1, 64)
 	case types.KindBool:
-		if field.Val.Int64 != 0 {
+		if v.Int64 != 0 {
 			return append(dst, "true"...)
 		}
 		return append(dst, "false"...)
 	case types.KindError:
 		dst = append(dst, '"')
-		if field.Val.String != "" {
-			dst = appendJSONString(dst, field.Val.String)
-		} else if e, ok := field.Val.Any.(error); ok && e != nil {
+		if v.String != "" {
+			dst = appendJSONString(dst, v.String)
+		} else if e, ok := v.Any.(error); ok && e != nil {
 			dst = appendJSONString(dst, e.Error())
 		}
 		return append(dst, '"')
 	case types.KindAny:
-		return appendAny(dst, field.Val.Any)
+		return appendAny(dst, v.Any)
 	default: // KindUnknown → legacy interface value
-		return appendAny(dst, field.Value)
+		return appendAny(dst, legacy)
 	}
 }
 

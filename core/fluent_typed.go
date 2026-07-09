@@ -45,14 +45,35 @@ func (l *Logger) Typed() TypedFieldBuilder {
 	return TypedFieldBuilder{logger: l}
 }
 
+// acquire fetches the pooled per-P state for a new line and selects the line's
+// encoding mode: when the logger is direct-eligible, the adapter's current
+// direct encoder is captured once here, and every field of this line is encoded
+// straight to bytes instead of being captured as a struct. Querying per line
+// (not per logger) means a formatter swap safely flips subsequent lines back to
+// the capture path.
+//
+//go:inline
+func (fb TypedFieldBuilder) acquire() TypedFieldBuilder {
+	fb.state = globalPerPPool.get()
+	if da := fb.logger.directAdapter; da != nil {
+		fb.state.directEnc = da.DirectEncoder()
+	}
+	return fb
+}
+
 // withTyped acquires the pooled state on the first field and writes the typed
-// value directly into it. Reslicing the fixed static buffer and appending to the
-// overflow slice allocate nothing, so the hot path stays zero-allocation.
+// value directly into it. On the direct fast path the field is encoded to JSON
+// bytes immediately (zerolog-style, no struct capture); otherwise it is stored
+// as a TypedFieldData for the formatter. Both paths allocate nothing.
 //
 //go:inline
 func (fb TypedFieldBuilder) withTyped(key string, val types.FieldValue) TypedFieldBuilder {
 	if fb.state == nil {
-		fb.state = globalPerPPool.get()
+		fb = fb.acquire()
+	}
+	if enc := fb.state.directEnc; enc != nil {
+		fb.state.directFields = enc.AppendField(fb.state.directFields, nil, key, val)
+		return fb
 	}
 	entry := &fb.state.entry
 	n := entry.StaticFieldCount
@@ -118,7 +139,13 @@ func (fb TypedFieldBuilder) WithError(err error) TypedFieldBuilder {
 //go:inline
 func (fb TypedFieldBuilder) withKeyed(key *types.FieldKey, val types.FieldValue) TypedFieldBuilder {
 	if fb.state == nil {
-		fb.state = globalPerPPool.get()
+		fb = fb.acquire()
+	}
+	if enc := fb.state.directEnc; enc != nil {
+		// Fastest path in the logger: the pre-escaped `,"key":` fragment is a
+		// single memcpy — no key escaping, no struct capture.
+		fb.state.directFields = enc.AppendField(fb.state.directFields, key, key.Name, val)
+		return fb
 	}
 	entry := &fb.state.entry
 	n := entry.StaticFieldCount
@@ -238,6 +265,23 @@ func (fb TypedFieldBuilder) Error(msg string) {
 //go:inline
 func (fb TypedFieldBuilder) dispatch(level types.LogLevel, msg string) {
 	if level < fb.logger.Level() {
+		globalPerPPool.put(fb.state)
+		return
+	}
+
+	// Direct fast path: fields are already encoded bytes; assemble
+	// header + fields + closer in the pooled line buffer and hand the finished
+	// line to the raw writer. Eligibility (see NewLogger) guarantees masking and
+	// sampling are off, so no transform is skipped.
+	if enc := fb.state.directEnc; enc != nil {
+		line := enc.AppendHeader(fb.state.lineBuf[:0], fb.logger.clock.GetNsecValue(), level, msg)
+		line = append(line, fb.state.directFields...)
+		line = enc.AppendCloser(line)
+		fb.state.lineBuf = line // retain growth for reuse
+		_ = fb.logger.rawWriter.WriteRaw(line)
+		if fb.logger.metrics != nil {
+			fb.logger.metrics.counts[level].Add(1)
+		}
 		globalPerPPool.put(fb.state)
 		return
 	}

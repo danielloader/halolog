@@ -29,6 +29,17 @@ type perPState struct {
 	entry    types.LogEntry
 	fieldBuf [64]types.TypedFieldData // Buffer for entry fields
 	_        [64 - 8]byte             // Padding to cache line
+
+	// Direct-append fast path (see fluent_typed.go dispatch). directEnc is
+	// selected per line at first-field time; when non-nil the builder encodes
+	// fields straight into directFields instead of capturing TypedFieldData.
+	// Both slices keep their (possibly grown) heap backing across reuses so the
+	// path stays zero-allocation after warmup.
+	directEnc    types.DirectFieldEncoder
+	directFields []byte // encoded `,"k":v` members for the current line
+	lineBuf      []byte // scratch for assembling the full line
+	directArr    [1024]byte
+	lineArr      [1280]byte
 }
 
 // globalPerPPool is the per-P state pool
@@ -37,6 +48,8 @@ var globalPerPPool = &perPPool{
 		New: func() interface{} {
 			state := &perPState{}
 			state.entry.StaticFields = state.fieldBuf[:]
+			state.directFields = state.directArr[:0]
+			state.lineBuf = state.lineArr[:0]
 			return state
 		},
 	},
@@ -52,6 +65,8 @@ type perPPool struct {
 func (p *perPPool) get() *perPState {
 	s := p.pool.Get().(*perPState)
 	s.entry.StaticFieldCount = 0
+	s.directEnc = nil
+	s.directFields = s.directFields[:0]
 	// Restore the static-fields slice to its full backing buffer. A prior
 	// dispatch may have resliced it to [:count]; without this, the next borrower
 	// sees a shortened slice and silently drops fields once the write index

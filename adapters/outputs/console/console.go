@@ -91,6 +91,32 @@ func (a *Adapter) Write(entry *types.LogEntry) error {
 // to Write (both take the pooled formatting buffer).
 func (a *Adapter) WriteZero(entry *types.LogEntry) error { return a.Write(entry) }
 
+// WriteRaw writes an already-formatted line (including its trailing newline)
+// under the same mutex as Write, so raw and formatted lines never interleave.
+// It implements types.RawWriter for the direct-append fast path.
+func (a *Adapter) WriteRaw(line []byte) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed {
+		return nil
+	}
+	_, err := a.w.Write(line)
+	return err
+}
+
+// DirectEncoder implements types.DirectCapableAdapter: it exposes the current
+// formatter when that formatter can direct-encode, else nil. Because it reads
+// the live formatter under the lock, swapping to a non-capable formatter via
+// SetFormatter automatically disables the fast path for subsequent lines.
+func (a *Adapter) DirectEncoder() types.DirectFieldEncoder {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if enc, ok := a.formatter.(types.DirectFieldEncoder); ok {
+		return enc
+	}
+	return nil
+}
+
 // Flush flushes the underlying writer if it supports flushing.
 func (a *Adapter) Flush() error {
 	a.mu.Lock()
