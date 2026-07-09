@@ -76,10 +76,23 @@ func (p *perPPool) get() *perPState {
 	return s
 }
 
+// maxRetainedLineBytes caps how much direct-path buffer growth a pooled state
+// may keep between uses. One pathological line (e.g. a multi-megabyte field)
+// would otherwise pin its grown buffer on the pooled state indefinitely — an
+// unbounded memory-retention vector. Oversized buffers are reset to their
+// fixed backing arrays instead.
+const maxRetainedLineBytes = 64 << 10
+
 // put returns the state to the pool
 //
 //go:inline
 func (p *perPPool) put(state *perPState) {
 	state.entry.Reset() // Safe reset
+	if cap(state.lineBuf) > maxRetainedLineBytes {
+		state.lineBuf = state.lineArr[:0]
+	}
+	if cap(state.directFields) > maxRetainedLineBytes {
+		state.directFields = state.directArr[:0]
+	}
 	p.pool.Put(state)
 }

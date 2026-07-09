@@ -121,6 +121,20 @@ func TestZeroAlloc_DirectPath(t *testing.T) {
 	}
 }
 
+// TestDirectBuffers_RetentionCapped proves one pathological line cannot pin its
+// grown buffers on the pooled state: put() resets oversized direct buffers to
+// their fixed backing arrays.
+func TestDirectBuffers_RetentionCapped(t *testing.T) {
+	s := globalPerPPool.get()
+	s.lineBuf = make([]byte, 0, 2*maxRetainedLineBytes)
+	s.directFields = make([]byte, 0, 2*maxRetainedLineBytes)
+	globalPerPPool.put(s)
+
+	if cap(s.lineBuf) > len(s.lineArr) || cap(s.directFields) > len(s.directArr) {
+		t.Fatalf("oversized buffers retained: line=%d fields=%d", cap(s.lineBuf), cap(s.directFields))
+	}
+}
+
 // noRecordRaw is a raw-capable adapter whose WriteRaw does nothing, so the alloc
 // guard measures only the logger's own path.
 type noRecordRaw struct{ enc types.DirectFieldEncoder }
