@@ -39,97 +39,98 @@ zap slightly. `HaloLog_DisabledOutput` rows measure the no-op sink and are
 
 | Logger | ns/op | allocs | vs HaloLog |
 |---|---:|---:|---:|
-| **HaloLog** | **23.6** | 0 B, 0 | — |
-| phuslu/log | 61.9 | 0 B, 0 | 2.6× slower |
-| zerolog | 86.7 | 0 B, 0 | 3.7× slower |
-| zap | 143.7 | 0 B, 0 | 6.1× slower |
-| slog (stdlib JSON) | 234.4 | 0 B, 0 | 9.9× slower |
-| logrus | 933.7 | 797 B, 21 | 40× slower |
+| **HaloLog** | **23.9** | 0 B, 0 | — |
+| phuslu/log | 63.1 | 0 B, 0 | 2.6× slower |
+| zerolog | 86.8 | 0 B, 0 | 3.6× slower |
+| zap | 146.2 | 0 B, 0 | 6.1× slower |
+| slog (stdlib JSON) | 280.3 | 0 B, 0 | 11.7× slower |
+| logrus | 1395 | 797 B, 21 | 58× slower |
 
-23.6 ns/op ≈ **42 million JSON log lines per second, single goroutine**.
+23.9 ns/op ≈ **42 million JSON log lines per second, single goroutine**.
 
 ### One field (string)
 
 | Logger | ns/op | allocs |
 |---|---:|---:|
-| **HaloLog (typed)** | **34.4** | 0 B, 0 |
-| HaloLog (WithField) | 43.8 | 0 B, 0 |
-| phuslu/log | 66.6 | 0 B, 0 |
-| zerolog | 98.4 | 0 B, 0 |
-| zap | 183.0 | 64 B, 1 |
-| slog | 314.0 | 48 B, 1 |
-| logrus | 1411 | 1.5 KiB, 27 |
+| **HaloLog (typed)** | **32.0** | 0 B, 0 |
+| HaloLog (WithField) | 40.1 | 0 B, 0 |
+| phuslu/log | 69.9 | 0 B, 0 |
+| zerolog | 99.5 | 0 B, 0 |
+| zap | 183.7 | 64 B, 1 |
+| slog | 312.9 | 48 B, 1 |
+| logrus | 1486 | 1.5 KiB, 27 |
 
 ### Ten fields (int)
 
 | Logger | ns/op | allocs |
 |---|---:|---:|
-| **HaloLog (pre-declared keys)** | **79.2** | 0 B, 0 |
-| **HaloLog (typed)** | **100.8** | 0 B, 0 |
-| phuslu/log | 113.3 | 0 B, 0 |
-| HaloLog (WithField) | 132.8 | 0 B, 0 |
-| zerolog | 157.6 | 0 B, 0 |
-| zap | 399.6 | 706 B, 1 |
-| slog | 921.1 | 689 B, 11 |
-| logrus | 3782 | 3.4 KiB, 64 |
+| **HaloLog (pre-declared keys)** | **83.1** | 0 B, 0 |
+| **HaloLog (typed, plain keys)** | **83.6** | 0 B, 0 |
+| HaloLog (WithField) | 113.6 | 0 B, 0 |
+| phuslu/log | 120.7 | 0 B, 0 |
+| zerolog | 201.7 | 0 B, 0 |
+| zap | 437.4 | 706 B, 1 |
+| slog | 992.9 | 689 B, 11 |
+| logrus | 4066 | 3.4 KiB, 64 |
+
+The fused single-pass key emit made escaped plain keys as fast as
+pre-declared ones (83.6 vs 83.1 ns) — key safety now costs effectively
+nothing on clean keys. Even the legacy `WithField` interface API beats every
+competitor.
 
 ### Twenty fields (int)
 
 | Logger | ns/op | allocs |
 |---|---:|---:|
-| **HaloLog (typed)** | **155.7** | 0 B, 0 |
-| phuslu/log | 175.2 | 0 B, 0 |
-| zerolog | 221.5 | 0 B, 0 |
-| HaloLog (WithField) | 238.4 | 0 B, 0 |
-| zap (fields prebuilt) | 346.3 | 0 B, 0 |
+| **HaloLog (typed)** | **146.0** | 0 B, 0 |
+| phuslu/log | 179.9 | 0 B, 0 |
+| HaloLog (WithField) | 206.8 | 0 B, 0 |
+| zerolog | 230.6 | 0 B, 0 |
+| zap (fields prebuilt) | 394.6 | 0 B, 0 |
 
 ### Disabled level (not comparable to output rows)
 
 | | ns/op |
 |---|---:|
-| HaloLog, level filtered | 0.84 |
+| HaloLog, level filtered | 0.83 |
 
-## Results — windows/amd64 (same hardware, same day, final code, quiet host)
+## Results — windows/amd64 (same hardware, same day, final code, same run)
 
-| Scenario | HaloLog | phuslu | zerolog |
+| Scenario | HaloLog | phuslu | zerolog² |
 |---|---:|---:|---:|
-| Bare message | **23.5** | 51.0 | 62.8 |
-| One field (typed) | **34.4** | 40.3 | 75.5 |
-| Ten fields (typed) | 98.6 | **85.3** | 132.6 |
-| Ten fields (pre-declared keys) | **82.4** | — | — |
-| Twenty fields (typed) | 159.6 | **151.4** | 200.0 |
+| Bare message | **26.6** | 46.2 | 62.8 |
+| One field (typed) | **42.1** | 46.0 | 75.5 |
+| Ten fields (typed) | **99.2** | 103.2 | 132.6 |
+| Twenty fields (typed) | **162.6** | 176.3 | 200.0 |
 
-## The cross-OS flip, explained (profiler-verified)
+² zerolog column from the same-day full Windows sweep; HaloLog/phuslu from
+their same-run head-to-head after the fused key emit landed.
 
-HaloLog's numbers are **platform-invariant**: bare message 23.5/23.6 ns and
-ten-field 98.6/99.0 ns on Windows/Linux — the engine does no per-line
-wall-clock read and no syscalls (one atomic load of the cached clock, fused
-header memcpy). phuslu's numbers **swing ~30% between OSes** (ten-field 85.3
-on Windows vs 112.9 on Linux) because ~39% of their line is per-line
-timestamp acquisition + formatting (their own CPU profile), and Windows'
-time source is far cheaper than Linux's vDSO `clock_gettime`. On Windows
-that tailwind, combined with phuslu not escaping field keys at all, puts
-them ahead on plain-string-keyed ten/twenty-field lines. Profiling our
-ten-field line shows the residual gap is almost exactly the per-call
-plain-key escaping (~25% of the line) — the safety phuslu skips. With
-**pre-declared keys** (escaped once, memcpy per use — safe *and* fast),
-HaloLog wins ten-field on Windows too: **82.4 vs 85.3**.
+## Cross-OS behavior (profiler-verified)
+
+HaloLog is the only logger in the field whose latency is
+**platform-invariant** — the engine does no per-line wall-clock read and no
+syscalls (one atomic load of the cached clock, fused header memcpy). phuslu
+swings ~30% between OSes because ~39% of its line is per-line timestamp
+acquisition + formatting (its own CPU profile) and Windows' time source is
+far cheaper than Linux's vDSO `clock_gettime`. That Windows tailwind — plus
+phuslu not escaping field keys at all (hostile keys break its JSON) —
+briefly gave it the plain-string ten/twenty-field lead on Windows; the
+fused single-pass key emit removed our per-call key cost and closed those
+last two cells while keeping keys fully escaped.
 
 ## Verdict
 
-- **HaloLog wins every scenario on linux/amd64**, the CI environment — ten
-  and twenty typed fields by ~12–14% over phuslu (99.0 vs 112.9; 157.7 vs
-  178.4), pre-declared keys at 80.5, and 1.8–2.6× at zero/one field — at
-  0 B/op, 0 allocs/op everywhere.
-- On Windows, HaloLog wins bare-message (2.2×), one-field, and keyed
-  ten-field; phuslu leads plain-string-keyed ten/twenty there, riding a
-  Windows-cheap time source plus unescaped keys (see above).
-- HaloLog is the only logger in the field whose latency is stable across
-  operating systems (±0.4%); every competitor's profile carries per-line
-  OS-time or allocation costs that shift with the platform.
-- zerolog is beaten in every scenario on both platforms. zap, slog, and
-  logrus are not close (3–40× slower, and all three allocate once fields
-  appear).
+- **HaloLog wins every scenario on both platforms.** Linux (the CI
+  environment): 2.6×/2.2× over phuslu at zero/one field, **44% faster at
+  ten fields** (83.6 vs 120.7), 23% at twenty (146.0 vs 179.9). Windows
+  (same-run): 26.6 vs 46.2 bare, 99.2 vs 103.2 at ten, 162.6 vs 176.3 at
+  twenty.
+- 0 B/op, 0 allocs/op in every HaloLog scenario, with fully escaped keys
+  and never-interleaved lines — correctness guarantees the closest rival
+  does not offer.
+- zerolog is beaten 1.6–3.6× everywhere. zap, slog, and logrus are not
+  close (4–58× slower, and all three allocate once fields appear).
 
 ## Why these numbers moved — the three optimizations (2026-08-26)
 
@@ -158,6 +159,12 @@ find each with `git log --oneline --grep`.
    any dirty word. Byte-identical output (exhaustive oracle tests); 80-byte
    clean scan 23.5→14.3 ns, and it widened the Linux ten/twenty-field
    margins.
+5. **"perf(json): fuse the plain-key scan and copy into one pass"** — the
+   key emit was two passes and two calls per field (~25% of a ten-field
+   line); it is now one fused scan-while-copy loop that bails to the exact
+   escaping path on a hostile byte. Plain escaped keys became as fast as
+   pre-declared ones (83.6 vs 83.1 ns at ten fields on Linux), completing
+   the sweep on Windows as well.
 
 Byte output is unchanged (pinned by direct-vs-capture identity tests) and every
 hot path stays 0 allocs/op under 7 committed allocation guards

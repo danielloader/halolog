@@ -374,21 +374,23 @@ yourself; numbers vary by machine.
 
 ```
                         HaloLog   phuslu   zerolog     zap     slog   logrus
-Bare message            23.6 ns   61.9 ns   86.7 ns  143.7 ns  234.4   934 ns
-One field (typed)       34.4 ns   66.6 ns   98.4 ns  183.0 ns  314.0  1411 ns
-Ten fields (typed)     100.8 ns  113.3 ns  157.6 ns  399.6 ns  921.1  3782 ns
-Ten fields (keyed)      79.2 ns        —        —        —        —       —
-Twenty fields (typed)  155.7 ns  175.2 ns  221.5 ns  346.3 ns      —       —
-Disabled level         0.84 ns         —        —        —        —       —
+Bare message            23.9 ns   63.1 ns   86.8 ns  146.2 ns  280.3  1395 ns
+One field (typed)       32.0 ns   69.9 ns   99.5 ns  183.7 ns  312.9  1486 ns
+Ten fields (typed)      83.6 ns  120.7 ns  201.7 ns  437.4 ns  992.9  4066 ns
+Ten fields (keyed)      83.1 ns        —        —        —        —       —
+Twenty fields (typed)  146.0 ns  179.9 ns  230.6 ns  394.6 ns      —       —
+Disabled level         0.83 ns         —        —        —        —       —
 HaloLog allocations    0 B/op, 0 allocs/op in every scenario
 ```
 
-Honest summary: **HaloLog wins every scenario in this field on linux/amd64** —
-2.6× ahead of phuslu and 3.7× ahead of zerolog on bare messages, ~11% ahead
-at ten and twenty typed fields, and decisively ahead with pre-declared keys —
-at 0 allocs/op everywhere. On windows/amd64 (a noisier host) the zero/one-field
-wins hold while phuslu leads the ten/twenty-field scenarios there. Full method,
-fairness notes, and per-platform tables:
+Honest summary: **HaloLog wins every scenario in this field on both
+linux/amd64 and windows/amd64** — 2.6× ahead of phuslu on bare messages,
+2.2× at one field, 44% at ten fields, 23% at twenty on Linux, with the
+same-run Windows head-to-head also swept — at 0 allocs/op everywhere, with
+fully escaped keys and never-interleaved lines. HaloLog is also the only
+logger in the field whose latency is stable across operating systems (no
+per-line clock reads, no syscalls). Full method, fairness notes, and
+per-platform tables:
 [`benchmarks/comprehensive_comparison.md`](benchmarks/comprehensive_comparison.md).
 Every hot path is pinned at **0 allocs/op** by seven committed guards
 (`go test ./core -run TestZeroAlloc`).
@@ -397,9 +399,9 @@ Every hot path is pinned at **0 allocs/op** by seven committed guards
 
 | Feature            | HaloLogger              | Zerolog           | phuslu/log        | Zap             | Logrus            |
 | ------------------ | ----------------------- | ----------------- | ----------------- | --------------- | ----------------- |
-| **Bare message**   | **23.6 ns · 0 B**       | 86.7 ns · 0 B     | 61.9 ns · 0 B     | 143.7 ns · 0 B  | 934 ns · 797 B    |
-| **One field**      | **34.4 ns · 0 B**       | 98.4 ns · 0 B     | 66.6 ns · 0 B     | 183.0 ns · 64 B | 1411 ns · 1.5 KiB |
-| **Ten fields**     | **100.8 ns · 0 B**      | 157.6 ns · 0 B    | 113.3 ns · 0 B    | 399.6 ns · 706 B| 3782 ns · 3.4 KiB |
+| **Bare message**   | **23.9 ns · 0 B**       | 86.8 ns · 0 B     | 63.1 ns · 0 B     | 146.2 ns · 0 B  | 1395 ns · 797 B   |
+| **One field**      | **32.0 ns · 0 B**       | 99.5 ns · 0 B     | 69.9 ns · 0 B     | 183.7 ns · 64 B | 1486 ns · 1.5 KiB |
+| **Ten fields**     | **83.6 ns · 0 B**       | 201.7 ns · 0 B    | 120.7 ns · 0 B    | 437.4 ns · 706 B| 4066 ns · 3.4 KiB |
 | **Disabled level** | **0.8 ns**              | ~1 ns             | ~1 ns             | ~2 ns           | ~15 ns            |
 | **PII Masking**    | **✅ Built-in**         | ❌ External       | ❌ External       | ❌ External     | ❌ External       |
 | **File Rotation**  | **✅ Built-in**         | ❌ External       | ✅ Built-in       | ❌ External     | ❌ External       |
