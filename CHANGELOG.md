@@ -63,6 +63,18 @@ All notable changes to HaloLog are documented here. This project adheres to
   errors with `errors.Join` instead of stopping at the first; ~80 inert
   `//go:inline` pseudo-directives (not a real compiler directive) removed.
 
+### Changed (performance)
+- **Console adapter: formatting moved outside the write lock, formatter behind
+  an atomic pointer.** The mutex now guards only the single `Write` call, so
+  concurrent loggers contend for nanoseconds instead of encoding time, and
+  `DirectEncoder()` — queried once per line on the typed/keyed fast path — is a
+  lock-free atomic load instead of a mutex pair. Measured: one-field typed
+  lines ~54→46 ns, ten-field typed ~184→174 ns (win/amd64); zero allocations
+  unchanged.
+- **Benchmarks: phuslu/log added to the comparison field** (the fastest
+  public Go logger on current leaderboards) across the bare-message, one-,
+  ten-, and twenty-field scenarios, same JSON-to-io.Discard footing.
+
 ### Added
 - **Edge-case regression suite** (`tests/edge`) — 19 public-API tests pinning
   the hardening pass: level filtering on every fluent API, sampler
