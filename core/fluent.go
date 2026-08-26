@@ -27,27 +27,34 @@ import (
 // Design:
 //   - Get per-P pooled state on first field addition (lazy acquisition)
 //   - Write fields directly into the pooled entry's static buffer (zero-copy)
-//   - Dispatch reuses the pooled entry so passing it through the adapter's
-//     WriteZero interface method does not force a per-call heap allocation
+//   - All terminals dispatch through dispatchLine, the single point that
+//     enforces level filtering, sampling, masking, metrics, and state release
+//     for every fluent API.
+//
+// A builder must be finished with exactly one terminal call (Info, Error, …).
+// Calling a second terminal on a copy is a documented misuse; the pooled
+// state's epoch guard turns it into a no-op instead of corrupting the pool.
 //
 // Usage:
 //
-//	logger.With("key", "value").Info("message")
-//	logger.With("k1", "v1").With("k2", 123).Info("message")
+//	logger.WithField("key", "value").Info("message")
+//	logger.WithField("k1", "v1").WithField("k2", 123).Info("message")
 type FieldBuilder struct {
 	logger *Logger
 	state  *perPState // per-P pooled state (acquired on first field)
+	epoch  uint32     // state generation captured at acquisition
 }
 
 // WithField adds a field to the entry.
 // Returns FieldBuilder by VALUE to avoid heap allocation.
 // Gets per-P state on first call, writes directly to StaticBuffer.
-//
-//go:inline
 func (fb FieldBuilder) WithField(key string, value interface{}) FieldBuilder {
-	// Get per-P state on first field (lazy acquisition)
+	// Get per-P state on first field (lazy acquisition). Deliberately NOT
+	// acquireState: these legacy interface{} fields are struct-captured, so
+	// the line must take the capture path even on a direct-eligible logger.
 	if fb.state == nil {
 		fb.state = globalPerPPool.get()
+		fb.epoch = fb.state.epoch
 	}
 
 	entry := &fb.state.entry
@@ -66,43 +73,31 @@ func (fb FieldBuilder) WithField(key string, value interface{}) FieldBuilder {
 }
 
 // String adds a string field.
-//
-//go:inline
 func (fb FieldBuilder) String(key string, value string) FieldBuilder {
 	return fb.WithField(key, value)
 }
 
 // Int adds an integer field.
-//
-//go:inline
 func (fb FieldBuilder) Int(key string, value int) FieldBuilder {
 	return fb.WithField(key, value)
 }
 
 // Int64 adds an int64 field.
-//
-//go:inline
 func (fb FieldBuilder) Int64(key string, value int64) FieldBuilder {
 	return fb.WithField(key, value)
 }
 
 // Float64 adds a float64 field.
-//
-//go:inline
 func (fb FieldBuilder) Float64(key string, value float64) FieldBuilder {
 	return fb.WithField(key, value)
 }
 
 // Bool adds a boolean field.
-//
-//go:inline
 func (fb FieldBuilder) Bool(key string, value bool) FieldBuilder {
 	return fb.WithField(key, value)
 }
 
 // Err adds an error field.
-//
-//go:inline
 func (fb FieldBuilder) Err(err error) FieldBuilder {
 	if err != nil {
 		return fb.WithField("error", err.Error())
@@ -111,251 +106,67 @@ func (fb FieldBuilder) Err(err error) FieldBuilder {
 }
 
 // Info logs an info message with the accumulated fields.
-//
-//go:inline
 func (fb FieldBuilder) Info(msg string) {
 	if fb.state == nil {
-		// No fields case - use direct path (sub-2ns)
-		fb.logger.Info(msg)
+		fb.logger.Info(msg) // no fields: message-only fast path
 		return
 	}
-
-	entry := &fb.state.entry
-
-	// Dispatch through the pooled per-P entry. A single-field special case using
-	// a stack-local MinimalFieldEntry was removed: passing its address through the
-	// adapter's WriteZero interface method forced escape analysis to heap-allocate
-	// it on every call (2 allocs/op), which was slower than reusing the pooled
-	// entry the way the multi-field path already does (0 allocs/op).
-	entry.Level = types.InfoLevel
-	entry.Message = msg
-	entry.Component = fb.logger.component
-	entry.TimestampUnix = fb.logger.clock.GetNsecValue()
-	entry.StaticFields = entry.StaticFields[:entry.StaticFieldCount]
-
-	// Apply masking if configured
-	if fb.logger.enableMasking && fb.logger.masker != nil {
-		fb.logger.masker.Apply(entry)
-	}
-
-	// Direct adapter call
-	switch {
-	case fb.logger.discardAdapter != nil:
-		_ = fb.logger.discardAdapter.WriteZero(nil)
-	case len(fb.logger.adapters) == 1:
-		_ = fb.logger.adapters[0].WriteZero(entry)
-	default:
-		for _, a := range fb.logger.adapters {
-			_ = a.WriteZero(entry)
-		}
-	}
-
-	// Update metrics if configured
-	if fb.logger.metrics != nil {
-		fb.logger.metrics.counts[types.InfoLevel].Add(1)
-	}
-
-	// Return state to pool
-	globalPerPPool.put(fb.state)
+	dispatchLine(fb.logger, fb.state, fb.epoch, types.InfoLevel, msg)
 }
 
 // Debug logs a debug message with the accumulated fields.
-//
-//go:inline
 func (fb FieldBuilder) Debug(msg string) {
 	if fb.state == nil {
 		fb.logger.Debug(msg)
 		return
 	}
-
-	entry := &fb.state.entry
-
-	entry.Level = types.DebugLevel
-	entry.Message = msg
-	entry.Component = fb.logger.component
-	entry.TimestampUnix = fb.logger.clock.GetNsecValue()
-	entry.StaticFields = entry.StaticFields[:entry.StaticFieldCount]
-
-	if fb.logger.enableMasking && fb.logger.masker != nil {
-		fb.logger.masker.Apply(entry)
-	}
-
-	if len(fb.logger.adapters) == 1 {
-		_ = fb.logger.adapters[0].WriteZero(entry)
-	} else {
-		for _, a := range fb.logger.adapters {
-			_ = a.WriteZero(entry)
-		}
-	}
-
-	if fb.logger.metrics != nil {
-		fb.logger.metrics.counts[types.DebugLevel].Add(1)
-	}
-
-	globalPerPPool.put(fb.state)
+	dispatchLine(fb.logger, fb.state, fb.epoch, types.DebugLevel, msg)
 }
 
 // Warn logs a warning message with the accumulated fields.
-//
-//go:inline
 func (fb FieldBuilder) Warn(msg string) {
 	if fb.state == nil {
 		fb.logger.Warn(msg)
 		return
 	}
-
-	entry := &fb.state.entry
-
-	entry.Level = types.WarnLevel
-	entry.Message = msg
-	entry.Component = fb.logger.component
-	entry.TimestampUnix = fb.logger.clock.GetNsecValue()
-	entry.StaticFields = entry.StaticFields[:entry.StaticFieldCount]
-
-	if fb.logger.enableMasking && fb.logger.masker != nil {
-		fb.logger.masker.Apply(entry)
-	}
-
-	if len(fb.logger.adapters) == 1 {
-		_ = fb.logger.adapters[0].WriteZero(entry)
-	} else {
-		for _, a := range fb.logger.adapters {
-			_ = a.WriteZero(entry)
-		}
-	}
-
-	if fb.logger.metrics != nil {
-		fb.logger.metrics.counts[types.WarnLevel].Add(1)
-	}
-
-	globalPerPPool.put(fb.state)
+	dispatchLine(fb.logger, fb.state, fb.epoch, types.WarnLevel, msg)
 }
 
 // Error logs an error message with the accumulated fields.
-//
-//go:inline
 func (fb FieldBuilder) Error(msg string) {
 	if fb.state == nil {
 		fb.logger.Error(msg)
 		return
 	}
-
-	entry := &fb.state.entry
-
-	entry.Level = types.ErrorLevel
-	entry.Message = msg
-	entry.Component = fb.logger.component
-	entry.TimestampUnix = fb.logger.clock.GetNsecValue()
-	entry.StaticFields = entry.StaticFields[:entry.StaticFieldCount]
-
-	if fb.logger.enableMasking && fb.logger.masker != nil {
-		fb.logger.masker.Apply(entry)
-	}
-
-	if len(fb.logger.adapters) == 1 {
-		_ = fb.logger.adapters[0].WriteZero(entry)
-	} else {
-		for _, a := range fb.logger.adapters {
-			_ = a.WriteZero(entry)
-		}
-	}
-
-	if fb.logger.metrics != nil {
-		fb.logger.metrics.counts[types.ErrorLevel].Add(1)
-	}
-
-	globalPerPPool.put(fb.state)
+	dispatchLine(fb.logger, fb.state, fb.epoch, types.ErrorLevel, msg)
 }
 
 // Trace logs a trace message with the accumulated fields.
-//
-//go:inline
 func (fb FieldBuilder) Trace(msg string) {
 	if fb.state == nil {
 		fb.logger.Trace(msg)
 		return
 	}
-
-	entry := &fb.state.entry
-	entry.Level = types.TraceLevel
-	entry.Message = msg
-	entry.Component = fb.logger.component
-	entry.TimestampUnix = fb.logger.clock.GetNsecValue()
-	entry.StaticFields = entry.StaticFields[:entry.StaticFieldCount]
-
-	if fb.logger.enableMasking && fb.logger.masker != nil {
-		fb.logger.masker.Apply(entry)
-	}
-
-	if len(fb.logger.adapters) == 1 {
-		_ = fb.logger.adapters[0].WriteZero(entry)
-	} else {
-		for _, a := range fb.logger.adapters {
-			_ = a.WriteZero(entry)
-		}
-	}
-
-	globalPerPPool.put(fb.state)
+	dispatchLine(fb.logger, fb.state, fb.epoch, types.TraceLevel, msg)
 }
 
-// Fatal logs a fatal message with the accumulated fields.
-//
-//go:inline
+// Fatal logs a fatal message with the accumulated fields, flushes the
+// adapters, and terminates the process via the logger's exit function
+// (os.Exit(1) unless overridden in Config).
 func (fb FieldBuilder) Fatal(msg string) {
 	if fb.state == nil {
 		fb.logger.Fatal(msg)
 		return
 	}
-
-	entry := &fb.state.entry
-	entry.Level = types.FatalLevel
-	entry.Message = msg
-	entry.Component = fb.logger.component
-	entry.TimestampUnix = fb.logger.clock.GetNsecValue()
-	entry.StaticFields = entry.StaticFields[:entry.StaticFieldCount]
-
-	if fb.logger.enableMasking && fb.logger.masker != nil {
-		fb.logger.masker.Apply(entry)
-	}
-
-	if len(fb.logger.adapters) == 1 {
-		_ = fb.logger.adapters[0].WriteZero(entry)
-	} else {
-		for _, a := range fb.logger.adapters {
-			_ = a.WriteZero(entry)
-		}
-	}
-
-	globalPerPPool.put(fb.state)
+	dispatchLine(fb.logger, fb.state, fb.epoch, types.FatalLevel, msg)
 }
 
-// Panic logs a panic message with the accumulated fields.
-//
-//go:inline
+// Panic logs a panic message with the accumulated fields, then panics with
+// the message.
 func (fb FieldBuilder) Panic(msg string) {
 	if fb.state == nil {
 		fb.logger.Panic(msg)
 		return
 	}
-
-	entry := &fb.state.entry
-	entry.Level = types.PanicLevel
-	entry.Message = msg
-	entry.Component = fb.logger.component
-	entry.TimestampUnix = fb.logger.clock.GetNsecValue()
-	entry.StaticFields = entry.StaticFields[:entry.StaticFieldCount]
-
-	if fb.logger.enableMasking && fb.logger.masker != nil {
-		fb.logger.masker.Apply(entry)
-	}
-
-	if len(fb.logger.adapters) == 1 {
-		_ = fb.logger.adapters[0].WriteZero(entry)
-	} else {
-		for _, a := range fb.logger.adapters {
-			_ = a.WriteZero(entry)
-		}
-	}
-
-	globalPerPPool.put(fb.state)
+	dispatchLine(fb.logger, fb.state, fb.epoch, types.PanicLevel, msg)
 }

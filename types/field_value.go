@@ -43,36 +43,26 @@ type FieldValue struct {
 }
 
 // StringValue creates a string FieldValue.
-//
-//go:inline
 func StringValue(s string) FieldValue {
 	return FieldValue{Kind: KindString, String: s}
 }
 
 // IntValue creates an int FieldValue.
-//
-//go:inline
 func IntValue(i int) FieldValue {
 	return FieldValue{Kind: KindInt, Int64: int64(i)}
 }
 
 // Int64Value creates an int64 FieldValue.
-//
-//go:inline
 func Int64Value(i int64) FieldValue {
 	return FieldValue{Kind: KindInt64, Int64: i}
 }
 
 // Float64Value creates a float64 FieldValue.
-//
-//go:inline
 func Float64Value(f float64) FieldValue {
 	return FieldValue{Kind: KindFloat64, Float64: f}
 }
 
 // BoolValue creates a bool FieldValue.
-//
-//go:inline
 func BoolValue(b bool) FieldValue {
 	if b {
 		return FieldValue{Kind: KindBool, Int64: 1}
@@ -81,8 +71,6 @@ func BoolValue(b bool) FieldValue {
 }
 
 // ErrorValue creates an error FieldValue.
-//
-//go:inline
 func ErrorValue(err error) FieldValue {
 	if err == nil {
 		return FieldValue{Kind: KindError}
@@ -91,15 +79,11 @@ func ErrorValue(err error) FieldValue {
 }
 
 // AnyValue creates an interface{} FieldValue (fallback).
-//
-//go:inline
 func AnyValue(v interface{}) FieldValue {
 	return FieldValue{Kind: KindAny, Any: v}
 }
 
 // ToInterface converts FieldValue to interface{} for adapter compatibility.
-//
-//go:inline
 func (v FieldValue) ToInterface() interface{} {
 	switch v.Kind {
 	case KindString:

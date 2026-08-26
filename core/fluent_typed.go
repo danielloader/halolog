@@ -37,11 +37,10 @@ import (
 type TypedFieldBuilder struct {
 	logger *Logger
 	state  *perPState // per-P pooled state (acquired on first field)
+	epoch  uint32     // state generation captured at acquisition
 }
 
 // Typed returns a typed field builder for boxing-free structured logging.
-//
-//go:inline
 func (l *Logger) Typed() TypedFieldBuilder {
 	return TypedFieldBuilder{logger: l}
 }
@@ -52,10 +51,9 @@ func (l *Logger) Typed() TypedFieldBuilder {
 // straight to bytes instead of being captured as a struct. Querying per line
 // (not per logger) means a formatter swap safely flips subsequent lines back to
 // the capture path.
-//
-//go:inline
 func (fb TypedFieldBuilder) acquire() TypedFieldBuilder {
 	fb.state = acquireState(fb.logger)
+	fb.epoch = fb.state.epoch
 	return fb
 }
 
@@ -65,8 +63,6 @@ func (fb TypedFieldBuilder) acquire() TypedFieldBuilder {
 // dispatched (jsonfmt package functions — no interface calls on the hot loop).
 // Querying per line means a runtime formatter swap safely flips later lines
 // back to the capture path; a non-JSON encoder also keeps the capture path.
-//
-//go:inline
 func acquireState(l *Logger) *perPState {
 	s := globalPerPPool.get()
 	if da := l.directAdapter; da != nil {
@@ -80,8 +76,6 @@ func acquireState(l *Logger) *perPState {
 // field is encoded to JSON bytes immediately via a static package call
 // (zerolog-style, no struct capture); otherwise it is captured as a
 // TypedFieldData for the formatter. Both paths allocate nothing.
-//
-//go:inline
 func addField(s *perPState, kd *types.FieldKey, key string, val types.FieldValue) {
 	if s.directJSON != nil {
 		s.directFields = jsonfmt.AppendField(s.directFields, kd, key, val)
@@ -99,8 +93,6 @@ func addField(s *perPState, kd *types.FieldKey, key string, val types.FieldValue
 
 // withTyped acquires the pooled state on the first field and adds a
 // string-keyed typed value.
-//
-//go:inline
 func (fb TypedFieldBuilder) withTyped(key string, val types.FieldValue) TypedFieldBuilder {
 	if fb.state == nil {
 		fb = fb.acquire()
@@ -110,52 +102,38 @@ func (fb TypedFieldBuilder) withTyped(key string, val types.FieldValue) TypedFie
 }
 
 // WithString adds a string field without interface{} boxing.
-//
-//go:inline
 func (fb TypedFieldBuilder) WithString(key string, value string) TypedFieldBuilder {
 	return fb.withTyped(key, types.StringValue(value))
 }
 
 // WithInt adds an int field without interface{} boxing.
-//
-//go:inline
 func (fb TypedFieldBuilder) WithInt(key string, value int) TypedFieldBuilder {
 	return fb.withTyped(key, types.IntValue(value))
 }
 
 // WithInt64 adds an int64 field without interface{} boxing.
-//
-//go:inline
 func (fb TypedFieldBuilder) WithInt64(key string, value int64) TypedFieldBuilder {
 	return fb.withTyped(key, types.Int64Value(value))
 }
 
 // WithFloat64 adds a float64 field without interface{} boxing.
-//
-//go:inline
 func (fb TypedFieldBuilder) WithFloat64(key string, value float64) TypedFieldBuilder {
 	return fb.withTyped(key, types.Float64Value(value))
 }
 
 // WithBool adds a bool field without interface{} boxing.
-//
-//go:inline
 func (fb TypedFieldBuilder) WithBool(key string, value bool) TypedFieldBuilder {
 	return fb.withTyped(key, types.BoolValue(value))
 }
 
 // WithAny adds an arbitrary value under a plain string key. Prefer the typed
 // setters on hot paths — Any values box through an interface.
-//
-//go:inline
 func (fb TypedFieldBuilder) WithAny(key string, value interface{}) TypedFieldBuilder {
 	return fb.withTyped(key, types.AnyValue(value))
 }
 
 // WithError adds an error field without interface{} boxing. A nil error is a
 // no-op.
-//
-//go:inline
 func (fb TypedFieldBuilder) WithError(err error) TypedFieldBuilder {
 	if err == nil {
 		return fb
@@ -166,8 +144,6 @@ func (fb TypedFieldBuilder) WithError(err error) TypedFieldBuilder {
 // withKeyed writes a field under a pre-declared key, carrying the key's
 // pre-escaped fragment so the formatter emits it without escaping. Mirrors
 // withTyped but stores the FieldKey descriptor.
-//
-//go:inline
 func (fb TypedFieldBuilder) withKeyed(key *types.FieldKey, val types.FieldValue) TypedFieldBuilder {
 	if fb.state == nil {
 		fb = fb.acquire()
@@ -180,43 +156,31 @@ func (fb TypedFieldBuilder) withKeyed(key *types.FieldKey, val types.FieldValue)
 
 // Str adds a string field under a pre-declared key (fastest path — the key is
 // never escaped at log time). Pair with a package-level key from Key(...).
-//
-//go:inline
 func (fb TypedFieldBuilder) Str(key *types.FieldKey, value string) TypedFieldBuilder {
 	return fb.withKeyed(key, types.StringValue(value))
 }
 
 // Int adds an int field under a pre-declared key.
-//
-//go:inline
 func (fb TypedFieldBuilder) Int(key *types.FieldKey, value int) TypedFieldBuilder {
 	return fb.withKeyed(key, types.IntValue(value))
 }
 
 // Int64 adds an int64 field under a pre-declared key.
-//
-//go:inline
 func (fb TypedFieldBuilder) Int64(key *types.FieldKey, value int64) TypedFieldBuilder {
 	return fb.withKeyed(key, types.Int64Value(value))
 }
 
 // Float64 adds a float64 field under a pre-declared key.
-//
-//go:inline
 func (fb TypedFieldBuilder) Float64(key *types.FieldKey, value float64) TypedFieldBuilder {
 	return fb.withKeyed(key, types.Float64Value(value))
 }
 
 // Bool adds a bool field under a pre-declared key.
-//
-//go:inline
 func (fb TypedFieldBuilder) Bool(key *types.FieldKey, value bool) TypedFieldBuilder {
 	return fb.withKeyed(key, types.BoolValue(value))
 }
 
 // Err adds an error field under a pre-declared key. A nil error is a no-op.
-//
-//go:inline
 func (fb TypedFieldBuilder) Err(key *types.FieldKey, err error) TypedFieldBuilder {
 	if err == nil {
 		return fb
@@ -227,15 +191,11 @@ func (fb TypedFieldBuilder) Err(key *types.FieldKey, err error) TypedFieldBuilde
 // Any adds an arbitrary value under a pre-declared key. Prefer the typed methods
 // on the hot path; Any is a convenience for values whose type is not known ahead
 // of time.
-//
-//go:inline
 func (fb TypedFieldBuilder) Any(key *types.FieldKey, value interface{}) TypedFieldBuilder {
 	return fb.withKeyed(key, types.AnyValue(value))
 }
 
 // Info logs an info message with the accumulated typed fields.
-//
-//go:inline
 func (fb TypedFieldBuilder) Info(msg string) {
 	if fb.state == nil {
 		fb.logger.Info(msg)
@@ -245,8 +205,6 @@ func (fb TypedFieldBuilder) Info(msg string) {
 }
 
 // Debug logs a debug message with the accumulated typed fields.
-//
-//go:inline
 func (fb TypedFieldBuilder) Debug(msg string) {
 	if fb.state == nil {
 		fb.logger.Debug(msg)
@@ -256,8 +214,6 @@ func (fb TypedFieldBuilder) Debug(msg string) {
 }
 
 // Warn logs a warning message with the accumulated typed fields.
-//
-//go:inline
 func (fb TypedFieldBuilder) Warn(msg string) {
 	if fb.state == nil {
 		fb.logger.Warn(msg)
@@ -267,8 +223,6 @@ func (fb TypedFieldBuilder) Warn(msg string) {
 }
 
 // Error logs an error message with the accumulated typed fields.
-//
-//go:inline
 func (fb TypedFieldBuilder) Error(msg string) {
 	if fb.state == nil {
 		fb.logger.Error(msg)
@@ -277,19 +231,56 @@ func (fb TypedFieldBuilder) Error(msg string) {
 	fb.dispatch(types.ErrorLevel, msg)
 }
 
+// Trace logs a trace message with the accumulated typed fields.
+func (fb TypedFieldBuilder) Trace(msg string) {
+	if fb.state == nil {
+		fb.logger.Trace(msg)
+		return
+	}
+	fb.dispatch(types.TraceLevel, msg)
+}
+
+// Fatal logs a fatal message with the accumulated typed fields, flushes the
+// adapters, and terminates the process via the logger's exit function.
+func (fb TypedFieldBuilder) Fatal(msg string) {
+	if fb.state == nil {
+		fb.logger.Fatal(msg)
+		return
+	}
+	fb.dispatch(types.FatalLevel, msg)
+}
+
+// Panic logs a panic message with the accumulated typed fields, then panics
+// with the message.
+func (fb TypedFieldBuilder) Panic(msg string) {
+	if fb.state == nil {
+		fb.logger.Panic(msg)
+		return
+	}
+	fb.dispatch(types.PanicLevel, msg)
+}
+
 // dispatch renders the accumulated fields through the pooled per-P entry and
 // returns the state to the pool. Passing the pooled (already heap-resident)
 // entry to the adapter's WriteZero interface method keeps dispatch
 // zero-allocation.
-//
-//go:inline
 func (fb TypedFieldBuilder) dispatch(level types.LogLevel, msg string) {
-	dispatchLine(fb.logger, fb.state, level, msg)
+	dispatchLine(fb.logger, fb.state, fb.epoch, level, msg)
 }
 
 // dispatchLine renders the accumulated line and returns the state to the pool.
-// It is shared by the typed builder and the level-first Line API.
-func dispatchLine(l *Logger, s *perPState, level types.LogLevel, msg string) {
+// It is the single dispatch point shared by the classic FieldBuilder, the
+// typed builder, and the level-first Line API, so level filtering, sampling,
+// masking, metrics, terminal-level semantics, and state release are enforced
+// identically for every fluent API.
+func dispatchLine(l *Logger, s *perPState, epoch uint32, level types.LogLevel, msg string) {
+	// Stale-builder guard: the state was already dispatched and recycled
+	// (documented misuse: two terminals on one builder). Touching it now
+	// would corrupt whoever owns it next — make the call a no-op instead.
+	if s.epoch != epoch {
+		return
+	}
+
 	if level < l.Level() {
 		globalPerPPool.put(s)
 		return
@@ -313,32 +304,49 @@ func dispatchLine(l *Logger, s *perPState, level types.LogLevel, msg string) {
 		return
 	}
 
-	fb := TypedFieldBuilder{logger: l, state: s}
-	entry := &fb.state.entry
+	entry := &s.entry
 	entry.Level = level
 	entry.Message = msg
-	entry.Component = fb.logger.component
-	entry.TimestampUnix = fb.logger.clock.GetNsecValue()
+	entry.Component = l.component
+	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFields = entry.StaticFields[:entry.StaticFieldCount]
 
-	if fb.logger.enableMasking && fb.logger.masker != nil {
-		fb.logger.masker.Apply(entry)
+	// Sampling drops before the (more expensive) masking transform. Fatal and
+	// Panic lines are never sampled away — losing the last line before a
+	// crash is the one drop an operator cannot afford.
+	if l.sampler != nil && level < types.FatalLevel && !l.sampler.ShouldSample(entry) {
+		globalPerPPool.put(s)
+		return
+	}
+
+	if l.enableMasking && l.masker != nil {
+		l.masker.Apply(entry)
 	}
 
 	switch {
-	case fb.logger.discardAdapter != nil:
-		_ = fb.logger.discardAdapter.WriteZero(nil)
-	case len(fb.logger.adapters) == 1:
-		_ = fb.logger.adapters[0].WriteZero(entry)
+	case l.discardAdapter != nil:
+		_ = l.discardAdapter.WriteZero(nil)
+	case len(l.adapters) == 1:
+		_ = l.adapters[0].WriteZero(entry)
 	default:
-		for _, a := range fb.logger.adapters {
+		for _, a := range l.adapters {
 			_ = a.WriteZero(entry)
 		}
 	}
 
-	if fb.logger.metrics != nil {
-		fb.logger.metrics.counts[level].Add(1)
+	if l.metrics != nil {
+		l.metrics.counts[level].Add(1)
 	}
 
-	globalPerPPool.put(fb.state)
+	globalPerPPool.put(s)
+
+	// Terminal-level semantics, applied after the state is safely back in the
+	// pool so a recovered panic leaks nothing.
+	switch level {
+	case types.FatalLevel:
+		_ = l.Flush()
+		l.exit(1)
+	case types.PanicLevel:
+		panic(msg)
+	}
 }

@@ -18,6 +18,8 @@
 package core
 
 import (
+	"errors"
+	"os"
 	"sync/atomic"
 
 	"github.com/go-gen-ecosystem/halolog/adapters/outputs/discard"
@@ -25,8 +27,11 @@ import (
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
-// hotState contains frequently accessed data that fits in one cache line.
+// hotState groups the data every log call touches behind one atomic pointer.
 // All log dispatch happens through function pointers here.
+// Size: 2×8 bytes of scalars + 7×8 bytes of function pointers + 8 bytes of
+// padding = 80 bytes (one 64-byte cache line plus the spill; the pointers used
+// by a single call still land on the first line).
 type hotState struct {
 	// Cached timestamp from clock
 	cachedNanos uint64 // 8 bytes
@@ -44,7 +49,7 @@ type hotState struct {
 	panicFunc func(*Logger, string)
 	traceFunc func(*Logger, string)
 
-	_ [8]byte // Pad to 64 bytes
+	_ [8]byte // Round the struct up to a multiple of 8 words
 }
 
 // Logger is the core logging engine.
@@ -66,6 +71,10 @@ type Logger struct {
 	// Optional features (nil if not configured)
 	sampler types.Sampler
 	metrics *metricsCollector
+
+	// exitFunc terminates the process after a Fatal line (default os.Exit).
+	// Overridable via Config.ExitFunc for tests and embedders.
+	exitFunc func(int)
 
 	// Direct-append fast path (both non-nil only when the sole adapter accepts
 	// raw lines and can expose a direct encoder, and no per-entry transform
@@ -95,6 +104,11 @@ type Config struct {
 	Sampler        types.Sampler
 	EnableMetrics  bool
 
+	// ExitFunc replaces os.Exit for Fatal-level lines. Leave nil for the
+	// conventional behavior (log, flush, os.Exit(1)); set it in tests or in
+	// hosts that must intercept termination.
+	ExitFunc func(int)
+
 	// Advanced features
 	EnableAlerts      bool
 	EnableAggregation bool
@@ -108,6 +122,7 @@ func NewLogger(config Config) *Logger {
 		adapters:      config.Adapters,
 		masker:        config.Masker,
 		enableMasking: config.EnableMasking && config.Masker != nil,
+		exitFunc:      config.ExitFunc,
 	}
 
 	// Detect discard adapter for zero-allocation optimization
@@ -157,6 +172,36 @@ func NewLogger(config Config) *Logger {
 // setupFunctionPointers sets up function pointers based on configuration.
 // This is the startup-time specialization - each level gets the exact function it needs.
 func (l *Logger) setupFunctionPointers(hot *hotState, level types.LogLevel) {
+	// Sampling configured: route every samplable level through the
+	// sampler-aware generic path. Sampling implies extra per-line work anyway,
+	// so the mask×adapter specialization matrix is not duplicated for it.
+	// Fatal and Panic are never sampled (see logSampled) and keep their funcs.
+	if l.sampler != nil {
+		hot.traceFunc = noopLog
+		if level <= types.TraceLevel {
+			hot.traceFunc = l.traceSampled
+		}
+		hot.debugFunc = noopLog
+		if level <= types.DebugLevel {
+			hot.debugFunc = l.debugSampled
+		}
+		hot.infoFunc = noopLog
+		if level <= types.InfoLevel {
+			hot.infoFunc = l.infoSampled
+		}
+		hot.warnFunc = noopLog
+		if level <= types.WarnLevel {
+			hot.warnFunc = l.warnSampled
+		}
+		hot.errorFunc = noopLog
+		if level <= types.ErrorLevel {
+			hot.errorFunc = l.errorSampled
+		}
+		hot.fatalFunc = l.realFatal
+		hot.panicFunc = l.realPanic
+		return
+	}
+
 	// Discard adapter optimization
 	if l.discardAdapter != nil {
 		// Use concrete discard adapter - zero interface dispatch
@@ -286,145 +331,132 @@ func (l *Logger) setupFunctionPointers(hot *hotState, level types.LogLevel) {
 }
 
 // noopLog is the no-op function for disabled levels.
-//
-//go:inline
 func noopLog(_ *Logger, _ string) {}
 
 // ===== HOT PATH METHODS =====
 
 // Trace logs a trace message.
-//
-//go:inline
 func (l *Logger) Trace(msg string) {
 	hot := l.hot.Load()
 	hot.traceFunc(l, msg)
 }
 
 // Debug logs a debug message.
-//
-//go:inline
 func (l *Logger) Debug(msg string) {
 	hot := l.hot.Load()
 	hot.debugFunc(l, msg)
 }
 
 // Info logs an info message.
-//
-//go:inline
 func (l *Logger) Info(msg string) {
 	hot := l.hot.Load()
 	hot.infoFunc(l, msg)
 }
 
 // Warn logs a warning message.
-//
-//go:inline
 func (l *Logger) Warn(msg string) {
 	hot := l.hot.Load()
 	hot.warnFunc(l, msg)
 }
 
 // Error logs an error message.
-//
-//go:inline
 func (l *Logger) Error(msg string) {
 	hot := l.hot.Load()
 	hot.errorFunc(l, msg)
 }
 
 // Fatal logs a fatal message.
-//
-//go:inline
 func (l *Logger) Fatal(msg string) {
 	hot := l.hot.Load()
 	hot.fatalFunc(l, msg)
 }
 
 // Panic logs a panic message.
-//
-//go:inline
 func (l *Logger) Panic(msg string) {
 	hot := l.hot.Load()
 	hot.panicFunc(l, msg)
 }
 
 // ===== DISCARD-OPTIMIZED FUNCTIONS (Concrete type dispatch) =====
+//
+// The discard adapter ignores its argument entirely, so every level passes
+// nil and skips entry construction. This is deliberately SYMMETRIC across
+// levels: previously only Info took the shortcut, which quietly made the one
+// level every benchmark measures cheaper than its siblings.
 
-//go:inline
-func (l *Logger) realTraceDiscard(_ *Logger, msg string) {
-	var entry types.LogEntry
-	entry.Level = types.TraceLevel
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFieldCount = 0
-	_ = l.discardAdapter.WriteZero(&entry)
-}
-
-//go:inline
-func (l *Logger) realDebugDiscard(_ *Logger, msg string) {
-	var entry types.LogEntry
-	entry.Level = types.DebugLevel
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFieldCount = 0
-	_ = l.discardAdapter.WriteZero(&entry)
-}
-
-//go:inline
-func (l *Logger) realInfoDiscard(_ *Logger, msg string) {
-	// Optimization: Discard adapter ignores entry, so pass nil to avoid allocation/zeroing
+func (l *Logger) realTraceDiscard(_ *Logger, _ string) {
 	_ = l.discardAdapter.WriteZero(nil)
+	if l.metrics != nil {
+		l.metrics.counts[types.TraceLevel].Add(1)
+	}
 }
 
-//go:inline
-func (l *Logger) realWarnDiscard(_ *Logger, msg string) {
-	var entry types.LogEntry
-	entry.Level = types.WarnLevel
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFieldCount = 0
-	_ = l.discardAdapter.WriteZero(&entry)
+func (l *Logger) realDebugDiscard(_ *Logger, _ string) {
+	_ = l.discardAdapter.WriteZero(nil)
+	if l.metrics != nil {
+		l.metrics.counts[types.DebugLevel].Add(1)
+	}
 }
 
-//go:inline
-func (l *Logger) realErrorDiscard(_ *Logger, msg string) {
-	var entry types.LogEntry
-	entry.Level = types.ErrorLevel
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFieldCount = 0
-	_ = l.discardAdapter.WriteZero(&entry)
+func (l *Logger) realInfoDiscard(_ *Logger, _ string) {
+	_ = l.discardAdapter.WriteZero(nil)
+	if l.metrics != nil {
+		l.metrics.counts[types.InfoLevel].Add(1)
+	}
 }
 
-//go:inline
+func (l *Logger) realWarnDiscard(_ *Logger, _ string) {
+	_ = l.discardAdapter.WriteZero(nil)
+	if l.metrics != nil {
+		l.metrics.counts[types.WarnLevel].Add(1)
+	}
+}
+
+func (l *Logger) realErrorDiscard(_ *Logger, _ string) {
+	_ = l.discardAdapter.WriteZero(nil)
+	if l.metrics != nil {
+		l.metrics.counts[types.ErrorLevel].Add(1)
+	}
+}
+
 func (l *Logger) realFatalDiscard(_ *Logger, msg string) {
-	var entry types.LogEntry
-	entry.Level = types.FatalLevel
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFieldCount = 0
-	_ = l.discardAdapter.WriteZero(&entry)
+	_ = l.discardAdapter.WriteZero(nil)
+	if l.metrics != nil {
+		l.metrics.counts[types.FatalLevel].Add(1)
+	}
+	l.exit(1)
 }
 
-//go:inline
 func (l *Logger) realPanicDiscard(_ *Logger, msg string) {
-	var entry types.LogEntry
-	entry.Level = types.PanicLevel
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFieldCount = 0
-	_ = l.discardAdapter.WriteZero(&entry)
+	_ = l.discardAdapter.WriteZero(nil)
+	if l.metrics != nil {
+		l.metrics.counts[types.PanicLevel].Add(1)
+	}
+	panic(msg)
 }
 
 // ===== REGULAR ADAPTER FUNCTIONS =====
 
-//go:inline
+// writeEntry masks (when configured) and writes one entry to all adapters,
+// then bumps the level's metric. Shared by the generic level funcs.
+func (l *Logger) writeEntry(entry *types.LogEntry) {
+	if l.enableMasking {
+		l.masker.Apply(entry)
+	}
+
+	if len(l.adapters) == 1 {
+		_ = l.adapters[0].WriteZero(entry)
+	} else {
+		for _, a := range l.adapters {
+			_ = a.WriteZero(entry)
+		}
+	}
+
+	if l.metrics != nil {
+		l.metrics.counts[entry.Level].Add(1)
+	}
+}
+
 func (l *Logger) realTrace(_ *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.TraceLevel
@@ -432,21 +464,12 @@ func (l *Logger) realTrace(_ *Logger, msg string) {
 	entry.Component = l.component
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
-
-	if l.enableMasking {
-		l.masker.Apply(&entry)
-	}
-
-	if len(l.adapters) == 1 {
-		_ = l.adapters[0].WriteZero(&entry)
-	} else {
-		for _, a := range l.adapters {
-			_ = a.WriteZero(&entry)
-		}
-	}
+	l.writeEntry(&entry)
 }
 
-//go:inline
+// realFatal writes the fatal line, flushes every adapter so the line is not
+// lost in a buffer, and terminates the process (conventional Fatal semantics —
+// zap, zerolog, logrus, and the standard library all exit here).
 func (l *Logger) realFatal(_ *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.FatalLevel
@@ -454,21 +477,13 @@ func (l *Logger) realFatal(_ *Logger, msg string) {
 	entry.Component = l.component
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
-
-	if l.enableMasking {
-		l.masker.Apply(&entry)
-	}
-
-	if len(l.adapters) == 1 {
-		_ = l.adapters[0].WriteZero(&entry)
-	} else {
-		for _, a := range l.adapters {
-			_ = a.WriteZero(&entry)
-		}
-	}
+	l.writeEntry(&entry)
+	_ = l.Flush()
+	l.exit(1)
 }
 
-//go:inline
+// realPanic writes the panic line, then panics with the message (conventional
+// Panic semantics).
 func (l *Logger) realPanic(_ *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.PanicLevel
@@ -476,25 +491,46 @@ func (l *Logger) realPanic(_ *Logger, msg string) {
 	entry.Component = l.component
 	entry.TimestampUnix = l.clock.GetNsecValue()
 	entry.StaticFieldCount = 0
-
-	if l.enableMasking {
-		l.masker.Apply(&entry)
-	}
-
-	if len(l.adapters) == 1 {
-		_ = l.adapters[0].WriteZero(&entry)
-	} else {
-		for _, a := range l.adapters {
-			_ = a.WriteZero(&entry)
-		}
-	}
+	l.writeEntry(&entry)
+	panic(msg)
 }
+
+// exit terminates the process after a fatal line, honoring Config.ExitFunc.
+func (l *Logger) exit(code int) {
+	if l.exitFunc != nil {
+		l.exitFunc(code)
+		return
+	}
+	os.Exit(code)
+}
+
+// ===== SAMPLED LEVEL FUNCTIONS (selected when a sampler is configured) =====
+
+// logSampled is the generic dispatch used when sampling is on: build the
+// entry, consult the sampler, then write. Fatal/Panic never route here.
+func (l *Logger) logSampled(level types.LogLevel, msg string) {
+	var entry types.LogEntry
+	entry.Level = level
+	entry.Message = msg
+	entry.Component = l.component
+	entry.TimestampUnix = l.clock.GetNsecValue()
+	entry.StaticFieldCount = 0
+
+	if !l.sampler.ShouldSample(&entry) {
+		return
+	}
+	l.writeEntry(&entry)
+}
+
+func (l *Logger) traceSampled(_ *Logger, msg string) { l.logSampled(types.TraceLevel, msg) }
+func (l *Logger) debugSampled(_ *Logger, msg string) { l.logSampled(types.DebugLevel, msg) }
+func (l *Logger) infoSampled(_ *Logger, msg string)  { l.logSampled(types.InfoLevel, msg) }
+func (l *Logger) warnSampled(_ *Logger, msg string)  { l.logSampled(types.WarnLevel, msg) }
+func (l *Logger) errorSampled(_ *Logger, msg string) { l.logSampled(types.ErrorLevel, msg) }
 
 // WithField returns a fluent builder for adding fields.
 // Returns by VALUE to avoid heap escape.
 // Gets per-P state lazily on first field addition.
-//
-//go:inline
 func (l *Logger) WithField(key string, value interface{}) FieldBuilder {
 	state := globalPerPPool.get()
 	state.entry.StaticFields[0] = types.TypedFieldData{Key: key, Value: value}
@@ -503,13 +539,12 @@ func (l *Logger) WithField(key string, value interface{}) FieldBuilder {
 	return FieldBuilder{
 		logger: l,
 		state:  state,
+		epoch:  state.epoch,
 	}
 }
 
 // WithError returns a fluent builder with an error field.
 // Returns by VALUE to avoid heap escape.
-//
-//go:inline
 func (l *Logger) WithError(err error) FieldBuilder {
 	if err == nil {
 		return FieldBuilder{logger: l}
@@ -522,6 +557,7 @@ func (l *Logger) WithError(err error) FieldBuilder {
 	return FieldBuilder{
 		logger: l,
 		state:  state,
+		epoch:  state.epoch,
 	}
 }
 
@@ -536,22 +572,26 @@ func (l *Logger) Level() types.LogLevel {
 	return types.LogLevel(hot.level)
 }
 
-// Flush flushes all adapters.
+// Flush flushes all adapters. Every adapter is flushed even when an earlier
+// one fails; the failures are joined into one error.
 func (l *Logger) Flush() error {
+	var errs []error
 	for _, a := range l.adapters {
 		if err := a.Flush(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
-// Close closes all adapters and releases resources.
+// Close closes all adapters and releases resources. Every adapter is closed
+// even when an earlier one fails; the failures are joined into one error.
 func (l *Logger) Close() error {
+	var errs []error
 	for _, a := range l.adapters {
 		if err := a.Close(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }

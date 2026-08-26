@@ -40,8 +40,6 @@ type Entry struct {
 }
 
 // Reset clears the entry for reuse.
-//
-//go:inline
 func (e *Entry) Reset() {
 	e.Timestamp = 0
 	e.Level = types.InfoLevel
@@ -63,8 +61,6 @@ func (e *Entry) Reset() {
 // AddField adds a field to the entry.
 // Uses static storage for first 16 fields (zero allocation).
 // Falls back to dynamic slice for additional fields.
-//
-//go:inline
 func (e *Entry) AddField(key string, value interface{}) {
 	if e.fieldCount < 16 {
 		e.staticFields[e.fieldCount].Key = key
@@ -84,43 +80,31 @@ func (e *Entry) AddField(key string, value interface{}) {
 }
 
 // AddString adds a string field.
-//
-//go:inline
 func (e *Entry) AddString(key string, value string) {
 	e.AddField(key, value)
 }
 
 // AddInt adds an integer field.
-//
-//go:inline
 func (e *Entry) AddInt(key string, value int) {
 	e.AddField(key, value)
 }
 
 // AddInt64 adds an int64 field.
-//
-//go:inline
 func (e *Entry) AddInt64(key string, value int64) {
 	e.AddField(key, value)
 }
 
 // AddFloat64 adds a float64 field.
-//
-//go:inline
 func (e *Entry) AddFloat64(key string, value float64) {
 	e.AddField(key, value)
 }
 
 // AddBool adds a boolean field.
-//
-//go:inline
 func (e *Entry) AddBool(key string, value bool) {
 	e.AddField(key, value)
 }
 
 // AddError adds an error field.
-//
-//go:inline
 func (e *Entry) AddError(err error) {
 	if err != nil {
 		e.AddField("error", err.Error())
@@ -128,8 +112,6 @@ func (e *Entry) AddError(err error) {
 }
 
 // FieldCount returns the total number of fields.
-//
-//go:inline
 func (e *Entry) FieldCount() int {
 	return int(e.fieldCount) + len(e.dynamicFields)
 }
@@ -159,8 +141,6 @@ func (e *Entry) Fields() []types.TypedFieldData {
 
 // ForEachField iterates over all fields without allocation.
 // Stops iteration if the callback returns false.
-//
-//go:inline
 func (e *Entry) ForEachField(fn func(key string, value interface{}) bool) {
 	// Iterate static fields
 	for i := uint8(0); i < e.fieldCount; i++ {
@@ -179,8 +159,6 @@ func (e *Entry) ForEachField(fn func(key string, value interface{}) bool) {
 
 // ToLogEntry converts Entry to types.LogEntry for adapter compatibility.
 // This is used when calling adapters that expect the legacy LogEntry type.
-//
-//go:inline
 func (e *Entry) ToLogEntry(target *types.LogEntry) {
 	target.TimestampUnix = e.Timestamp
 	target.Level = e.Level

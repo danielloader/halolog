@@ -32,7 +32,6 @@ import (
 // INFO SPECIALIZATIONS
 // =============================================================================
 
-//go:inline
 func (l *Logger) infoNoMaskOne(l2 *Logger, msg string) {
 	entry := pool.AcquireEntry()
 	entry.Level = types.InfoLevel
@@ -47,7 +46,6 @@ func (l *Logger) infoNoMaskOne(l2 *Logger, msg string) {
 	pool.ReleaseEntry(entry)
 }
 
-//go:inline
 func (l *Logger) infoNoMaskMulti(l2 *Logger, msg string) {
 	entry := pool.AcquireEntry()
 	entry.Level = types.InfoLevel
@@ -64,7 +62,6 @@ func (l *Logger) infoNoMaskMulti(l2 *Logger, msg string) {
 	pool.ReleaseEntry(entry)
 }
 
-//go:inline
 func (l *Logger) infoMaskOne(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.InfoLevel
@@ -80,7 +77,6 @@ func (l *Logger) infoMaskOne(l2 *Logger, msg string) {
 	}
 }
 
-//go:inline
 func (l *Logger) infoMaskMulti(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.InfoLevel
@@ -102,7 +98,6 @@ func (l *Logger) infoMaskMulti(l2 *Logger, msg string) {
 // DEBUG SPECIALIZATIONS
 // =============================================================================
 
-//go:inline
 func (l *Logger) debugNoMaskOne(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.DebugLevel
@@ -112,9 +107,11 @@ func (l *Logger) debugNoMaskOne(l2 *Logger, msg string) {
 	entry.StaticFieldCount = 0
 
 	_ = l.adapters[0].WriteZero(&entry)
+	if l.metrics != nil {
+		l.metrics.counts[types.DebugLevel].Add(1)
+	}
 }
 
-//go:inline
 func (l *Logger) debugNoMaskMulti(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.DebugLevel
@@ -126,9 +123,11 @@ func (l *Logger) debugNoMaskMulti(l2 *Logger, msg string) {
 	for _, a := range l.adapters {
 		_ = a.WriteZero(&entry)
 	}
+	if l.metrics != nil {
+		l.metrics.counts[types.DebugLevel].Add(1)
+	}
 }
 
-//go:inline
 func (l *Logger) debugMaskOne(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.DebugLevel
@@ -139,9 +138,11 @@ func (l *Logger) debugMaskOne(l2 *Logger, msg string) {
 
 	l.masker.Apply(&entry)
 	_ = l.adapters[0].WriteZero(&entry)
+	if l.metrics != nil {
+		l.metrics.counts[types.DebugLevel].Add(1)
+	}
 }
 
-//go:inline
 func (l *Logger) debugMaskMulti(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.DebugLevel
@@ -154,13 +155,15 @@ func (l *Logger) debugMaskMulti(l2 *Logger, msg string) {
 	for _, a := range l.adapters {
 		_ = a.WriteZero(&entry)
 	}
+	if l.metrics != nil {
+		l.metrics.counts[types.DebugLevel].Add(1)
+	}
 }
 
 // =============================================================================
 // WARN SPECIALIZATIONS
 // =============================================================================
 
-//go:inline
 func (l *Logger) warnNoMaskOne(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.WarnLevel
@@ -175,7 +178,6 @@ func (l *Logger) warnNoMaskOne(l2 *Logger, msg string) {
 	}
 }
 
-//go:inline
 func (l *Logger) warnNoMaskMulti(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.WarnLevel
@@ -192,7 +194,6 @@ func (l *Logger) warnNoMaskMulti(l2 *Logger, msg string) {
 	}
 }
 
-//go:inline
 func (l *Logger) warnMaskOne(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.WarnLevel
@@ -208,7 +209,6 @@ func (l *Logger) warnMaskOne(l2 *Logger, msg string) {
 	}
 }
 
-//go:inline
 func (l *Logger) warnMaskMulti(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.WarnLevel
@@ -230,7 +230,6 @@ func (l *Logger) warnMaskMulti(l2 *Logger, msg string) {
 // ERROR SPECIALIZATIONS
 // =============================================================================
 
-//go:inline
 func (l *Logger) errorNoMaskOne(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.ErrorLevel
@@ -240,9 +239,11 @@ func (l *Logger) errorNoMaskOne(l2 *Logger, msg string) {
 	entry.StaticFieldCount = 0
 
 	_ = l.adapters[0].WriteZero(&entry)
+	if l.metrics != nil {
+		l.metrics.counts[types.ErrorLevel].Add(1)
+	}
 }
 
-//go:inline
 func (l *Logger) errorNoMaskMulti(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.ErrorLevel
@@ -254,9 +255,11 @@ func (l *Logger) errorNoMaskMulti(l2 *Logger, msg string) {
 	for _, a := range l.adapters {
 		_ = a.WriteZero(&entry)
 	}
+	if l.metrics != nil {
+		l.metrics.counts[types.ErrorLevel].Add(1)
+	}
 }
 
-//go:inline
 func (l *Logger) errorMaskOne(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.ErrorLevel
@@ -267,9 +270,11 @@ func (l *Logger) errorMaskOne(l2 *Logger, msg string) {
 
 	l.masker.Apply(&entry)
 	_ = l.adapters[0].WriteZero(&entry)
+	if l.metrics != nil {
+		l.metrics.counts[types.ErrorLevel].Add(1)
+	}
 }
 
-//go:inline
 func (l *Logger) errorMaskMulti(l2 *Logger, msg string) {
 	var entry types.LogEntry
 	entry.Level = types.ErrorLevel
@@ -281,5 +286,8 @@ func (l *Logger) errorMaskMulti(l2 *Logger, msg string) {
 	l.masker.Apply(&entry)
 	for _, a := range l.adapters {
 		_ = a.WriteZero(&entry)
+	}
+	if l.metrics != nil {
+		l.metrics.counts[types.ErrorLevel].Add(1)
 	}
 }

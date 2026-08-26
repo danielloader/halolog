@@ -75,20 +75,41 @@ func (m *upperMasker) RemovePattern(name string)                       {}
 func (m *upperMasker) GetPatterns() []string                           { return nil }
 func (m *upperMasker) Clone() types.PIIMasker                          { return m }
 
+// mustPanic runs fn and asserts it panicked with the given message.
+func mustPanic(t *testing.T, wantMsg string, fn func()) {
+	t.Helper()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("expected panic %q, got none", wantMsg)
+		}
+		if got, ok := r.(string); !ok || got != wantMsg {
+			t.Fatalf("panic value = %v, want %q", r, wantMsg)
+		}
+	}()
+	fn()
+}
+
 // TestLogger_TraceFatalPanicRegular drives the generic realTrace/realFatal/realPanic
-// paths (regular adapter, no masking, single adapter).
+// paths (regular adapter, no masking, single adapter). Fatal must invoke the
+// exit function after writing; Panic must panic with the message after writing.
 func TestLogger_TraceFatalPanicRegular(t *testing.T) {
 	a := &countingAdapter{}
+	exitCode := -1
 	logger := NewLogger(Config{
 		Component: "lifecycle",
 		Level:     types.TraceLevel,
 		Adapters:  []types.Adapter{a},
+		ExitFunc:  func(code int) { exitCode = code },
 	})
 
 	logger.Trace("t")
 	logger.Fatal("f")
-	logger.Panic("p")
+	mustPanic(t, "p", func() { logger.Panic("p") })
 
+	if exitCode != 1 {
+		t.Errorf("Fatal exit code = %d, want 1", exitCode)
+	}
 	want := []types.LogLevel{types.TraceLevel, types.FatalLevel, types.PanicLevel}
 	if len(a.levels) != 3 {
 		t.Fatalf("got %d writes, want 3: %v", len(a.levels), a.levels)
@@ -109,11 +130,12 @@ func TestLogger_TraceFatalPanicMulti(t *testing.T) {
 		Component: "lifecycle-multi",
 		Level:     types.TraceLevel,
 		Adapters:  []types.Adapter{a1, a2},
+		ExitFunc:  func(int) {},
 	})
 
 	logger.Trace("t")
 	logger.Fatal("f")
-	logger.Panic("p")
+	mustPanic(t, "p", func() { logger.Panic("p") })
 
 	if len(a1.levels) != 3 || len(a2.levels) != 3 {
 		t.Fatalf("adapter writes a1=%d a2=%d, want 3 each", len(a1.levels), len(a2.levels))
@@ -182,13 +204,15 @@ func TestLogger_MaskingMultiAdapter(t *testing.T) {
 	}
 }
 
-// TestLogger_DiscardAllLevels drives the concrete discard adapter fast paths for
-// every level, ensuring no panic and that the discard branch is selected.
+// TestLogger_DiscardAllLevels drives the concrete discard adapter fast paths
+// for every level, including Fatal's exit hook and Panic's panic.
 func TestLogger_DiscardAllLevels(t *testing.T) {
+	exited := 0
 	logger := NewLogger(Config{
 		Component: "discard-all",
 		Level:     types.TraceLevel,
 		Adapters:  []types.Adapter{discard.New()},
+		ExitFunc:  func(int) { exited++ },
 	})
 	if logger.discardAdapter == nil {
 		t.Fatal("expected discardAdapter to be detected")
@@ -200,7 +224,11 @@ func TestLogger_DiscardAllLevels(t *testing.T) {
 	logger.Warn("w")
 	logger.Error("e")
 	logger.Fatal("f")
-	logger.Panic("p")
+	mustPanic(t, "p", func() { logger.Panic("p") })
+
+	if exited != 1 {
+		t.Errorf("Fatal should invoke the exit hook exactly once, got %d", exited)
+	}
 }
 
 // TestLogger_DiscardLevelFiltered ensures disabled levels map to noopLog on the
@@ -210,6 +238,7 @@ func TestLogger_DiscardLevelFiltered(t *testing.T) {
 		Component: "discard-filtered",
 		Level:     types.ErrorLevel,
 		Adapters:  []types.Adapter{discard.New()},
+		ExitFunc:  func(int) {},
 	})
 	// These are below Error; they map to noopLog. Just ensure no panic.
 	logger.Trace("t")

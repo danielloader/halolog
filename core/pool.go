@@ -47,6 +47,14 @@ type perPState struct {
 	owner     *Logger
 	lineLevel types.LogLevel
 
+	// epoch is a use-generation counter: bumped every time the state returns
+	// to the pool. Builders capture it at acquisition and terminals compare it
+	// before dispatching, so a builder reused after its terminal (a documented
+	// misuse) becomes a harmless no-op instead of double-releasing the state —
+	// which would hand one pooled state to two live builders and silently
+	// attribute one call's fields to another's line.
+	epoch uint32
+
 	directArr [1024]byte
 	lineArr   [1280]byte
 }
@@ -69,8 +77,6 @@ type perPPool struct {
 }
 
 // get retrieves a per-P state from sync.Pool
-//
-//go:inline
 func (p *perPPool) get() *perPState {
 	s := p.pool.Get().(*perPState)
 	s.entry.StaticFieldCount = 0
@@ -93,11 +99,10 @@ func (p *perPPool) get() *perPState {
 const maxRetainedLineBytes = 64 << 10
 
 // put returns the state to the pool
-//
-//go:inline
 func (p *perPPool) put(state *perPState) {
 	state.entry.Reset() // Safe reset
 	state.owner = nil   // do not pin a Logger via the pool
+	state.epoch++       // invalidate any builder still holding this state
 	if cap(state.lineBuf) > maxRetainedLineBytes {
 		state.lineBuf = state.lineArr[:0]
 	}

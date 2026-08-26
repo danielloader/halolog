@@ -70,6 +70,7 @@ func newCapturingLogger(t *testing.T, level types.LogLevel) (*Logger, *[]capture
 		Component: "fluent-cov",
 		Level:     level,
 		Adapters:  []types.Adapter{adapter},
+		ExitFunc:  func(int) {}, // keep Fatal testable
 	})
 	return logger, captures
 }
@@ -153,7 +154,11 @@ func TestFieldBuilder_AllLevelsMultiField(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, captures := newCapturingLogger(t, tc.level)
 			fb := logger.WithField("k1", "v1").WithField("k2", 2)
-			tc.call(fb, "multi "+tc.name)
+			if tc.want == types.PanicLevel {
+				mustPanic(t, "multi "+tc.name, func() { tc.call(fb, "multi "+tc.name) })
+			} else {
+				tc.call(fb, "multi "+tc.name)
+			}
 
 			if len(*captures) != 1 {
 				t.Fatalf("expected 1 capture, got %d", len(*captures))

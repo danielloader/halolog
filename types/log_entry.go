@@ -79,8 +79,6 @@ type LogEntry struct {
 
 // Reset clears the log entry for reuse in the pool
 // Reset clears the log entry for reuse in the pool
-//
-//go:inline
 func (e *LogEntry) Reset() {
 	// Only reset what's absolutely necessary
 	// Timestamp, Level, Message will be overwritten on next use
@@ -158,9 +156,10 @@ func (l LogLevel) Priority() int {
 	return int(l)
 }
 
-// IsDefined checks if the log level is valid
+// IsDefined checks if the log level is valid. LogLevel is unsigned, so only
+// the upper bound needs checking (l >= TraceLevel is always true).
 func (l LogLevel) IsDefined() bool {
-	return l >= TraceLevel && l <= PanicLevel
+	return l <= PanicLevel
 }
 
 // IsValid checks if the log level is valid (alias for IsDefined)
