@@ -253,12 +253,49 @@ func appendAny(dst []byte, v interface{}) []byte {
 	}
 }
 
+// SWAR constants for word-at-a-time escape detection.
+const (
+	swarOnes  = 0x0101010101010101
+	swarHighs = 0x8080808080808080
+)
+
+// jsonEscapeMask reports (as a non-zero value) whether any byte of the
+// little-endian word w needs JSON escaping: below 0x20, '"' (0x22), or
+// '\' (0x5C). It uses the classic branch-free "hasless"/"haszero" word
+// tricks; their any-byte detection is exact (per-lane bits may over-report
+// on borrow propagation, which is harmless — a hit only routes the string
+// to the precise per-byte escape path). Bytes ≥ 0x80 (UTF-8 continuation
+// and lead bytes) are never flagged by the hasless term because their own
+// high bit clears the &^w factor.
+func jsonEscapeMask(w uint64) uint64 {
+	below := (w - swarOnes*0x20) &^ w & swarHighs
+	q := w ^ (swarOnes * '"')
+	quote := (q - swarOnes) &^ q & swarHighs
+	b := w ^ (swarOnes * '\\')
+	backslash := (b - swarOnes) &^ b & swarHighs
+	return below | quote | backslash
+}
+
 // appendJSONString appends s to dst as a JSON string body (no surrounding
-// quotes), escaping only where required. The common case — a string with no
-// control characters, quotes or backslashes — is a single table-driven scan
-// followed by one bulk append, and allocates nothing.
+// quotes), escaping only where required. The clean-string common case scans
+// eight bytes per iteration: the manual shift-OR load below is recognized by
+// the compiler and fused into a single 8-byte load on little-endian
+// architectures, so the scan is one load plus a handful of ALU ops per word
+// instead of eight table lookups. Any word containing an escape-worthy byte
+// (and the sub-word tail) falls back to the exact per-byte path, keeping the
+// output byte-identical to the previous implementation.
 func appendJSONString(dst []byte, s string) []byte {
-	for i := 0; i < len(s); i++ {
+	i, n := 0, len(s)
+	for ; i+8 <= n; i += 8 {
+		w := uint64(s[i]) | uint64(s[i+1])<<8 | uint64(s[i+2])<<16 | uint64(s[i+3])<<24 |
+			uint64(s[i+4])<<32 | uint64(s[i+5])<<40 | uint64(s[i+6])<<48 | uint64(s[i+7])<<56
+		if jsonEscapeMask(w) != 0 {
+			// A dirty byte lies in [i, i+8); the escape path re-scans from i
+			// per byte, emitting clean bytes verbatim.
+			return appendJSONEscaped(dst, s, i)
+		}
+	}
+	for ; i < n; i++ {
 		if !jsonNoEscape[s[i]] {
 			return appendJSONEscaped(dst, s, i)
 		}
