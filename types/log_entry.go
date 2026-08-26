@@ -59,12 +59,12 @@ type LogEntry struct {
 
 	// Pre-allocated static storage
 	// Pre-allocated static storage
-	StaticFields       []TypedFieldData           // Slice backed by external buffer
-	StaticContext      []TypedFieldData           // Context fields slice
-	StaticFieldCount   int                        // Counter for static fields
-	StaticContextCount int                        // Counter for static context fields
-	QuantumStore       *EnhancedQuantumFieldStore // Quantum storage for high-frequency fields
-	UseQuantumStorage  bool                       // Flag to enable quantum storage
+	StaticFields       []TypedFieldData   // Slice backed by external buffer
+	StaticContext      []TypedFieldData   // Context fields slice
+	StaticFieldCount   int                // Counter for static fields
+	StaticContextCount int                // Counter for static context fields
+	IndexedStore       *IndexedFieldStore // Indexed storage for high-frequency fields
+	UseIndexedStorage  bool               // Flag to enable Indexed storage
 
 	// Performance optimization flags
 	hasFieldOverflow   bool // Flag when static storage overflows to dynamic

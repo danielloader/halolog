@@ -31,8 +31,8 @@ var LogEntryPool = sync.Pool{
 		return &LogEntry{
 			Fields:            make([]TypedFieldData, 0, 8),
 			Context:           make([]TypedFieldData, 0, 8),
-			QuantumStore:      nil,
-			UseQuantumStorage: false,
+			IndexedStore:      nil,
+			UseIndexedStorage: false,
 		}
 	},
 }
@@ -45,8 +45,8 @@ func NewLogEntry(level LogLevel, message string) *LogEntry {
 		Message:           message,
 		Fields:            make([]TypedFieldData, 0, 8),
 		Context:           make([]TypedFieldData, 0, 8),
-		QuantumStore:      nil,
-		UseQuantumStorage: false,
+		IndexedStore:      nil,
+		UseIndexedStorage: false,
 	}
 }
 
@@ -60,8 +60,8 @@ func NewLogEntryWithCaller(level LogLevel, message string, skip int) *LogEntry {
 	entry.Fields = nil
 	entry.Context = nil
 	entry.Error = nil
-	entry.QuantumStore = nil
-	entry.UseQuantumStorage = false
+	entry.IndexedStore = nil
+	entry.UseIndexedStorage = false
 
 	// Get caller info if GetHighPerformanceCallerInfo is available
 	// Otherwise just leave File and Line empty
@@ -89,8 +89,8 @@ func AcquireLogEntry() *LogEntry {
 	entry.Caller = nil
 	entry.StaticFieldCount = 0
 	entry.StaticContextCount = 0
-	entry.QuantumStore = nil
-	entry.UseQuantumStorage = false
+	entry.IndexedStore = nil
+	entry.UseIndexedStorage = false
 	return entry
 }
 
@@ -103,12 +103,12 @@ func ReleaseLogEntry(entry *LogEntry) {
 		entry.Error = nil
 		entry.Caller = nil
 
-		// Reset quantum store if present
-		if entry.QuantumStore != nil {
-			entry.QuantumStore.Reset()
-			entry.QuantumStore = nil
+		// Reset Indexed store if present
+		if entry.IndexedStore != nil {
+			entry.IndexedStore.Reset()
+			entry.IndexedStore = nil
 		}
-		entry.UseQuantumStorage = false
+		entry.UseIndexedStorage = false
 
 		LogEntryPool.Put(entry)
 	}

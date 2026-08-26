@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package types coverage tests for the legacy and enhanced quantum field
+// Package types coverage tests for the legacy and enhanced Indexed field
 // stores, using a small deterministic field dictionary.
 // @author Admilson B. F. Cossa
 
@@ -24,7 +24,7 @@ import (
 )
 
 // testDictionary is a small deterministic FieldDictionary implementation used to
-// drive the EnhancedQuantumFieldStore with bounded, sequential field IDs. This
+// drive the IndexedFieldStore with bounded, sequential field IDs. This
 // avoids the hash-based fallback (nil dictionary) which can generate very large
 // IDs unsuitable for chunk allocation in a test.
 type testDictionary struct {
@@ -104,8 +104,8 @@ func (d *testDictionary) GetFieldByID(id int) string {
 	return d.byID[id]
 }
 
-func TestLegacyQuantumFieldStore(t *testing.T) {
-	qfs := NewQuantumFieldStore(8)
+func TestLegacyBasicIndexedFieldStore(t *testing.T) {
+	qfs := NewBasicIndexedFieldStore(8)
 
 	qfs.Set("a", "1")
 	qfs.Set("b", "2")
@@ -152,9 +152,9 @@ func TestLegacyQuantumFieldStore(t *testing.T) {
 	}
 }
 
-func TestNewQuantumFieldStore_CapacityCap(t *testing.T) {
+func TestNewBasicIndexedFieldStore_CapacityCap(t *testing.T) {
 	// Capacity larger than 64 is capped to 64.
-	qfs := NewQuantumFieldStore(200)
+	qfs := NewBasicIndexedFieldStore(200)
 	// We can add at most 64 fields; validate we can set well past the cap request.
 	for i := 0; i < 64; i++ {
 		qfs.Set(string(rune('A'+i%26))+string(rune('0'+i/26)), "v")
@@ -164,9 +164,9 @@ func TestNewQuantumFieldStore_CapacityCap(t *testing.T) {
 	}
 }
 
-func TestEnhancedQuantumFieldStore_WithDict(t *testing.T) {
+func TestIndexedFieldStore_WithDict(t *testing.T) {
 	dict := newTestDictionary()
-	eqfs := NewEnhancedQuantumFieldStoreWithDict(16, dict)
+	eqfs := NewIndexedFieldStoreWithDict(16, dict)
 
 	eqfs.Set("k1", "v1")
 	eqfs.Set("k2", "v2")
@@ -205,24 +205,24 @@ func TestEnhancedQuantumFieldStore_WithDict(t *testing.T) {
 	}
 }
 
-func TestEnhancedQuantumFieldStore_DefaultChunkSize(t *testing.T) {
+func TestIndexedFieldStore_DefaultChunkSize(t *testing.T) {
 	// Non-positive chunk size falls back to default.
 	dict := newTestDictionary()
-	eqfs := NewEnhancedQuantumFieldStoreWithDict(0, dict)
+	eqfs := NewIndexedFieldStoreWithDict(0, dict)
 	eqfs.Set("k", "v")
 	if v, ok := eqfs.Get("k"); !ok || v != "v" {
 		t.Errorf("store with default chunk size failed: %v %v", v, ok)
 	}
 
-	eqfs2 := NewEnhancedQuantumFieldStore(-5)
+	eqfs2 := NewIndexedFieldStore(-5)
 	if eqfs2 == nil {
-		t.Fatal("NewEnhancedQuantumFieldStore returned nil")
+		t.Fatal("NewIndexedFieldStore returned nil")
 	}
 }
 
-func TestEnhancedQuantumFieldStore_SetByID(t *testing.T) {
+func TestIndexedFieldStore_SetByID(t *testing.T) {
 	dict := newTestDictionary()
-	eqfs := NewEnhancedQuantumFieldStoreWithDict(16, dict)
+	eqfs := NewIndexedFieldStoreWithDict(16, dict)
 
 	id := dict.GetOrRegisterFieldID("registered")
 	eqfs.SetByID(id, "value-by-id")
@@ -232,9 +232,9 @@ func TestEnhancedQuantumFieldStore_SetByID(t *testing.T) {
 	}
 }
 
-func TestEnhancedQuantumFieldStore_FastPathToggle(t *testing.T) {
+func TestIndexedFieldStore_FastPathToggle(t *testing.T) {
 	dict := newTestDictionary()
-	eqfs := NewEnhancedQuantumFieldStoreWithDict(16, dict)
+	eqfs := NewIndexedFieldStoreWithDict(16, dict)
 
 	// Seed chunk 0 via the slow path so subsequent fast-path writes land in
 	// an already-allocated chunk (fast path bails to slow path otherwise).

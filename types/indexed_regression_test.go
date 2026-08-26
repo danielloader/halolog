@@ -6,23 +6,23 @@ import (
 	"time"
 )
 
-// TestAddQuantumField_DoesNotHang guards the fix for a hang: with no field
+// TestAddIndexedField_DoesNotHang guards the fix for a hang: with no field
 // dictionary, field IDs were hash-derived (~4 billion), so the chunk-growth loop
 // tried to allocate billions of chunks and never returned. IDs are now dense.
-func TestAddQuantumField_DoesNotHang(t *testing.T) {
+func TestAddIndexedField_DoesNotHang(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		e := &LogEntry{}
 		for i := 0; i < 100; i++ {
-			e.AddQuantumField("field", "value")
-			e.AddQuantumField("other", "value2")
+			e.AddIndexedField("field", "value")
+			e.AddIndexedField("other", "value2")
 		}
 		close(done)
 	}()
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
-		t.Fatal("AddQuantumField hung (unbounded chunk growth)")
+		t.Fatal("AddIndexedField hung (unbounded chunk growth)")
 	}
 }
 
@@ -43,7 +43,7 @@ func TestFieldBuffer_FromMapThenGet(t *testing.T) {
 	}
 }
 
-// NOTE: EnhancedQuantumFieldStore's fast-path presence bitmask now uses an
+// NOTE: IndexedFieldStore's fast-path presence bitmask now uses an
 // atomic OR instead of atomic.Add (which corrupted the mask when a field was
 // re-set). A full Set/Get round-trip is deliberately not asserted here: the
 // store's Get path has separate pre-existing defects (it does not resolve set

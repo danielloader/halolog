@@ -23,8 +23,8 @@ import (
 	"sync/atomic"
 )
 
-// EnhancedQuantumFieldStore provides unlimited field storage with chunk-based O(1) access
-type EnhancedQuantumFieldStore struct {
+// IndexedFieldStore provides unlimited field storage with chunk-based O(1) access
+type IndexedFieldStore struct {
 	keys         [][]string      // Dynamic chunks of keys
 	values       [][]string      // Dynamic chunks of values
 	bitmasks     []uint64        // Multiple bitmasks for unlimited fields
@@ -44,8 +44,8 @@ type EnhancedQuantumFieldStore struct {
 	fallbackIDs map[string]int
 }
 
-// QuantumFieldStore is the legacy field store kept for backward compatibility.
-type QuantumFieldStore struct {
+// BasicIndexedFieldStore is the legacy field store kept for backward compatibility.
+type BasicIndexedFieldStore struct {
 	keys    []string       // Pre-allocated key array
 	values  []string       // Pre-allocated value array
 	bitmask uint64         // Active field bitmask (up to 64 fields)
@@ -53,38 +53,38 @@ type QuantumFieldStore struct {
 	keyMap  map[string]int // O(1) key to index mapping
 }
 
-// NewEnhancedQuantumFieldStore creates a new quantum field store with unlimited capacity.
+// NewIndexedFieldStore creates a new Indexed field store with unlimited capacity.
 // Note: dictionary should be set separately using dependency injection.
-func NewEnhancedQuantumFieldStore(chunkSize int) *EnhancedQuantumFieldStore {
+func NewIndexedFieldStore(chunkSize int) *IndexedFieldStore {
 	if chunkSize <= 0 {
 		chunkSize = 64 // Default chunk size
 	}
 
-	return &EnhancedQuantumFieldStore{
+	return &IndexedFieldStore{
 		chunkSize:  chunkSize,
 		dictionary: nil, // Will be set via dependency injection
 	}
 }
 
-// NewEnhancedQuantumFieldStoreWithDict creates a new quantum field store with a custom dictionary.
-func NewEnhancedQuantumFieldStoreWithDict(chunkSize int, dictionary FieldDictionary) *EnhancedQuantumFieldStore {
+// NewIndexedFieldStoreWithDict creates a new Indexed field store with a custom dictionary.
+func NewIndexedFieldStoreWithDict(chunkSize int, dictionary FieldDictionary) *IndexedFieldStore {
 	if chunkSize <= 0 {
 		chunkSize = 64 // Default chunk size
 	}
 	// Note: dictionary can be nil, will be set by caller if needed
 
-	return &EnhancedQuantumFieldStore{
+	return &IndexedFieldStore{
 		chunkSize:  chunkSize,
 		dictionary: dictionary,
 	}
 }
 
-// NewQuantumFieldStore creates a new quantum field store with pre-allocated capacity
-func NewQuantumFieldStore(capacity int) *QuantumFieldStore {
+// NewBasicIndexedFieldStore creates a new Indexed field store with pre-allocated capacity
+func NewBasicIndexedFieldStore(capacity int) *BasicIndexedFieldStore {
 	if capacity > 64 {
 		capacity = 64 // Limit to 64 fields for bitmask optimization
 	}
-	return &QuantumFieldStore{
+	return &BasicIndexedFieldStore{
 		keys:    make([]string, 0, capacity),
 		values:  make([]string, 0, capacity),
 		bitmask: 0,
@@ -93,7 +93,7 @@ func NewQuantumFieldStore(capacity int) *QuantumFieldStore {
 }
 
 // Set adds or updates a field with High-performance O(1) performance
-func (qfs *QuantumFieldStore) Set(key, value string) {
+func (qfs *BasicIndexedFieldStore) Set(key, value string) {
 	qfs.mu.Lock()
 	defer qfs.mu.Unlock()
 
@@ -115,7 +115,7 @@ func (qfs *QuantumFieldStore) Set(key, value string) {
 }
 
 // Get retrieves a field value with O(1) performance
-func (qfs *QuantumFieldStore) Get(key string) (string, bool) {
+func (qfs *BasicIndexedFieldStore) Get(key string) (string, bool) {
 	qfs.mu.RLock()
 	defer qfs.mu.RUnlock()
 
@@ -127,8 +127,8 @@ func (qfs *QuantumFieldStore) Get(key string) (string, bool) {
 }
 
 // Iterate processes only active fields using bit-mask traversal - high-performance
-// Quantum-inspired: evaluate all possibilities in parallel via bitmask
-func (qfs *QuantumFieldStore) Iterate(fn func(key, value string)) {
+// Indexed-inspired: evaluate all possibilities in parallel via bitmask
+func (qfs *BasicIndexedFieldStore) Iterate(fn func(key, value string)) {
 	qfs.mu.RLock()
 	defer qfs.mu.RUnlock()
 
@@ -144,8 +144,8 @@ func (qfs *QuantumFieldStore) Iterate(fn func(key, value string)) {
 	}
 }
 
-// Reset clears the quantum field store for reuse
-func (qfs *QuantumFieldStore) Reset() {
+// Reset clears the Indexed field store for reuse
+func (qfs *BasicIndexedFieldStore) Reset() {
 	qfs.mu.Lock()
 	defer qfs.mu.Unlock()
 
@@ -159,21 +159,21 @@ func (qfs *QuantumFieldStore) Reset() {
 }
 
 // Size returns the number of active fields
-func (qfs *QuantumFieldStore) Size() int {
+func (qfs *BasicIndexedFieldStore) Size() int {
 	qfs.mu.RLock()
 	defer qfs.mu.RUnlock()
 	return bits.OnesCount64(qfs.bitmask)
 }
 
 // GetActiveBits returns the raw bitmask for operations
-func (qfs *QuantumFieldStore) GetActiveBits() uint64 {
+func (qfs *BasicIndexedFieldStore) GetActiveBits() uint64 {
 	qfs.mu.RLock()
 	defer qfs.mu.RUnlock()
 	return qfs.bitmask
 }
 
 // SetInt adds an integer field with High-performance conversion
-func (qfs *QuantumFieldStore) SetInt(key string, value int64) {
+func (qfs *BasicIndexedFieldStore) SetInt(key string, value int64) {
 	qfs.mu.Lock()
 	defer qfs.mu.Unlock()
 
@@ -195,11 +195,11 @@ func (qfs *QuantumFieldStore) SetInt(key string, value int64) {
 }
 
 /* =====================================================================
-   QUANTUM FIELD STORE - UNLIMITED FIELDS
+   Indexed FIELD STORE - UNLIMITED FIELDS
    ===================================================================== */
 
 // growChunk dynamically adds a new chunk for unlimited field storage
-func (eqfs *EnhancedQuantumFieldStore) growChunk() {
+func (eqfs *IndexedFieldStore) growChunk() {
 	eqfs.mu.Lock()
 	defer eqfs.mu.Unlock()
 
@@ -211,17 +211,17 @@ func (eqfs *EnhancedQuantumFieldStore) growChunk() {
 }
 
 // EnableFastPath enables lock-free fast path operations
-func (eqfs *EnhancedQuantumFieldStore) EnableFastPath() {
+func (eqfs *IndexedFieldStore) EnableFastPath() {
 	eqfs.fastPath.Store(true)
 }
 
 // DisableFastPath disables lock-free fast path operations
-func (eqfs *EnhancedQuantumFieldStore) DisableFastPath() {
+func (eqfs *IndexedFieldStore) DisableFastPath() {
 	eqfs.fastPath.Store(false)
 }
 
 // Set adds or updates a field with chunk-based O(1) performance - LOCK-FREE FAST PATH
-func (eqfs *EnhancedQuantumFieldStore) Set(key, value string) {
+func (eqfs *IndexedFieldStore) Set(key, value string) {
 	// Fast path: try atomic operations if enabled
 	if eqfs.fastPath.Load() {
 		if eqfs.setFastPath(key, value) {
@@ -234,7 +234,7 @@ func (eqfs *EnhancedQuantumFieldStore) Set(key, value string) {
 }
 
 // setFastPath implements lock-free field setting using atomic operations
-func (eqfs *EnhancedQuantumFieldStore) setFastPath(key, value string) bool {
+func (eqfs *IndexedFieldStore) setFastPath(key, value string) bool {
 	fieldID := eqfs.getOrCreateFieldID(key)
 	chunkIdx := fieldID / eqfs.chunkSize
 	localIdx := fieldID % eqfs.chunkSize
@@ -269,7 +269,7 @@ func (eqfs *EnhancedQuantumFieldStore) setFastPath(key, value string) bool {
 }
 
 // setSlowPath uses traditional mutex for safety during chunk growth
-func (eqfs *EnhancedQuantumFieldStore) setSlowPath(key, value string) {
+func (eqfs *IndexedFieldStore) setSlowPath(key, value string) {
 	fieldID := eqfs.getOrCreateFieldID(key)
 	chunkIdx := fieldID / eqfs.chunkSize
 	localIdx := fieldID % eqfs.chunkSize
@@ -288,7 +288,7 @@ func (eqfs *EnhancedQuantumFieldStore) setSlowPath(key, value string) {
 }
 
 // SetByID adds or updates a field using a pre-registered field ID for High-performance performance
-func (eqfs *EnhancedQuantumFieldStore) SetByID(fieldID int, value string) {
+func (eqfs *IndexedFieldStore) SetByID(fieldID int, value string) {
 	chunkIdx := fieldID / eqfs.chunkSize
 	localIdx := fieldID % eqfs.chunkSize
 
@@ -312,7 +312,7 @@ func (eqfs *EnhancedQuantumFieldStore) SetByID(fieldID int, value string) {
 }
 
 // Get retrieves a field value with chunk-based O(1) performance
-func (eqfs *EnhancedQuantumFieldStore) Get(key string) (string, bool) {
+func (eqfs *IndexedFieldStore) Get(key string) (string, bool) {
 	fieldID, exists := eqfs.getFieldID(key)
 	if !exists {
 		return "", false
@@ -336,7 +336,7 @@ func (eqfs *EnhancedQuantumFieldStore) Get(key string) (string, bool) {
 }
 
 // GetAll returns all fields as a slice of TypedField - LOCK-FREE FAST PATH
-func (eqfs *EnhancedQuantumFieldStore) GetAll() []TypedFieldData {
+func (eqfs *IndexedFieldStore) GetAll() []TypedFieldData {
 	// Fast path: try lock-free access if no concurrent modifications
 	if eqfs.fastPath.Load() {
 		return eqfs.getAllFastPath()
@@ -347,7 +347,7 @@ func (eqfs *EnhancedQuantumFieldStore) GetAll() []TypedFieldData {
 }
 
 // getAllFastPath implements lock-free field retrieval using atomic operations
-func (eqfs *EnhancedQuantumFieldStore) getAllFastPath() []TypedFieldData {
+func (eqfs *IndexedFieldStore) getAllFastPath() []TypedFieldData {
 	var result []TypedFieldData
 
 	// Atomic read of current state
@@ -381,7 +381,7 @@ func (eqfs *EnhancedQuantumFieldStore) getAllFastPath() []TypedFieldData {
 }
 
 // getAllSlowPath uses traditional mutex for safety during concurrent modifications
-func (eqfs *EnhancedQuantumFieldStore) getAllSlowPath() []TypedFieldData {
+func (eqfs *IndexedFieldStore) getAllSlowPath() []TypedFieldData {
 	eqfs.mu.RLock()
 	defer eqfs.mu.RUnlock()
 
@@ -408,7 +408,7 @@ func (eqfs *EnhancedQuantumFieldStore) getAllSlowPath() []TypedFieldData {
 }
 
 // Iterate processes all active fields across all chunks
-func (eqfs *EnhancedQuantumFieldStore) Iterate(fn func(key, value string)) {
+func (eqfs *IndexedFieldStore) Iterate(fn func(key, value string)) {
 	eqfs.mu.RLock()
 	defer eqfs.mu.RUnlock()
 
@@ -431,7 +431,7 @@ func (eqfs *EnhancedQuantumFieldStore) Iterate(fn func(key, value string)) {
 }
 
 // Reset clears all chunks for reuse
-func (eqfs *EnhancedQuantumFieldStore) Reset() {
+func (eqfs *IndexedFieldStore) Reset() {
 	eqfs.mu.Lock()
 	defer eqfs.mu.Unlock()
 
@@ -450,7 +450,7 @@ func (eqfs *EnhancedQuantumFieldStore) Reset() {
 }
 
 // Size returns the total number of active fields across all chunks
-func (eqfs *EnhancedQuantumFieldStore) Size() int {
+func (eqfs *IndexedFieldStore) Size() int {
 	eqfs.mu.RLock()
 	defer eqfs.mu.RUnlock()
 
@@ -462,7 +462,7 @@ func (eqfs *EnhancedQuantumFieldStore) Size() int {
 }
 
 // Helper methods for field ID management (integrated with FieldDictionary)
-func (eqfs *EnhancedQuantumFieldStore) getOrCreateFieldID(key string) int {
+func (eqfs *IndexedFieldStore) getOrCreateFieldID(key string) int {
 	if eqfs.dictionary != nil {
 		return eqfs.dictionary.GetOrRegisterFieldID(key)
 	}
@@ -482,7 +482,7 @@ func (eqfs *EnhancedQuantumFieldStore) getOrCreateFieldID(key string) int {
 	return id
 }
 
-func (eqfs *EnhancedQuantumFieldStore) getFieldID(key string) (int, bool) {
+func (eqfs *IndexedFieldStore) getFieldID(key string) (int, bool) {
 	if eqfs.dictionary == nil {
 		// Fallback to hash-based field ID generation when dictionary is not available
 		return int(hashString(key)), true

@@ -85,42 +85,42 @@ func (e *LogEntry) SetComponent(component string) {
 }
 
 /* =====================================================================
-   QUANTUM STORAGE INTEGRATION METHODS
+   Indexed STORAGE INTEGRATION METHODS
    ===================================================================== */
 
-// EnableQuantumStorage enables quantum field storage for unlimited fields
-func (e *LogEntry) EnableQuantumStorage(chunkSize int) {
-	if e.QuantumStore == nil {
-		e.QuantumStore = NewEnhancedQuantumFieldStore(chunkSize)
-		e.UseQuantumStorage = true
+// EnableIndexedStorage enables Indexed field storage for unlimited fields
+func (e *LogEntry) EnableIndexedStorage(chunkSize int) {
+	if e.IndexedStore == nil {
+		e.IndexedStore = NewIndexedFieldStore(chunkSize)
+		e.UseIndexedStorage = true
 	}
 }
 
-// AddQuantumField adds a field to the quantum store (coexists with typed fields)
-func (e *LogEntry) AddQuantumField(key string, value interface{}) {
-	if e.QuantumStore == nil {
-		e.EnableQuantumStorage(64) // Default chunk size
+// AddIndexedField adds a field to the Indexed store (coexists with typed fields)
+func (e *LogEntry) AddIndexedField(key string, value interface{}) {
+	if e.IndexedStore == nil {
+		e.EnableIndexedStorage(64) // Default chunk size
 	}
 
-	// Convert value to string for quantum storage
+	// Convert value to string for Indexed storage
 	strValue := formatValue(value)
-	e.QuantumStore.Set(key, strValue)
+	e.IndexedStore.Set(key, strValue)
 }
 
-// GetQuantumField retrieves a field from the quantum store
-func (e *LogEntry) GetQuantumField(key string) (string, bool) {
-	if e.QuantumStore == nil {
+// GetIndexedField retrieves a field from the Indexed store
+func (e *LogEntry) GetIndexedField(key string) (string, bool) {
+	if e.IndexedStore == nil {
 		return "", false
 	}
-	return e.QuantumStore.Get(key)
+	return e.IndexedStore.Get(key)
 }
 
-// GetAllFields returns all fields (both typed and quantum) as TypedField slices
+// GetAllFields returns all fields (both typed and Indexed) as TypedField slices
 func (e *LogEntry) GetAllFields() []TypedFieldData {
 	// Calculate total field count
 	totalFields := len(e.Fields) + e.StaticFieldCount
-	if e.QuantumStore != nil {
-		totalFields += e.QuantumStore.Size()
+	if e.IndexedStore != nil {
+		totalFields += e.IndexedStore.Size()
 	}
 
 	// Pre-allocate with exact capacity
@@ -134,10 +134,10 @@ func (e *LogEntry) GetAllFields() []TypedFieldData {
 	// Add dynamic fields
 	allFields = append(allFields, e.Fields...)
 
-	// Add quantum fields if available
-	if e.QuantumStore != nil {
-		quantumFields := e.QuantumStore.GetAll()
-		allFields = append(allFields, quantumFields...)
+	// Add Indexed fields if available
+	if e.IndexedStore != nil {
+		IndexedFields := e.IndexedStore.GetAll()
+		allFields = append(allFields, IndexedFields...)
 	}
 
 	return allFields
@@ -163,7 +163,7 @@ func (e *LogEntry) EnsureDynamicFields() {
 	}
 }
 
-// GetAllContext returns all context fields (both typed and quantum) as TypedField slices
+// GetAllContext returns all context fields (both typed and Indexed) as TypedField slices
 func (e *LogEntry) GetAllContext() []TypedFieldData {
 	// Calculate total context count
 	totalContext := len(e.Context) + e.StaticContextCount
@@ -179,26 +179,26 @@ func (e *LogEntry) GetAllContext() []TypedFieldData {
 	// Add dynamic context
 	allContext = append(allContext, e.Context...)
 
-	// Note: For now, quantum storage is only used for Fields, not Context
+	// Note: For now, Indexed storage is only used for Fields, not Context
 	// This can be extended in the future if needed
 
 	return allContext
 }
 
-// IsUsingQuantumStorage returns true if quantum storage is enabled
-func (e *LogEntry) IsUsingQuantumStorage() bool {
-	return e.UseQuantumStorage && e.QuantumStore != nil
+// IsUsingIndexedStorage returns true if Indexed storage is enabled
+func (e *LogEntry) IsUsingIndexedStorage() bool {
+	return e.UseIndexedStorage && e.IndexedStore != nil
 }
 
-// MergeQuantumFieldsIntoTyped merges quantum fields into the typed fields array
+// MergeIndexedFieldsIntoTyped merges Indexed fields into the typed fields array
 // This is useful for backward compatibility or when you need all fields as TypedField
-func (e *LogEntry) MergeQuantumFieldsIntoTyped() {
-	if e.QuantumStore == nil {
+func (e *LogEntry) MergeIndexedFieldsIntoTyped() {
+	if e.IndexedStore == nil {
 		return
 	}
 
-	quantumFields := e.QuantumStore.GetAll()
-	e.Fields = append(e.Fields, quantumFields...)
+	IndexedFields := e.IndexedStore.GetAll()
+	e.Fields = append(e.Fields, IndexedFields...)
 }
 
 // Clone creates a deep copy of the log entry
@@ -214,7 +214,7 @@ func (e *LogEntry) Clone() *LogEntry {
 		Context:            make([]TypedFieldData, len(e.Context)),
 		Error:              e.Error,
 		Caller:             e.Caller,
-		UseQuantumStorage:  e.UseQuantumStorage,
+		UseIndexedStorage:  e.UseIndexedStorage,
 		StaticFieldCount:   e.StaticFieldCount,
 		StaticContextCount: e.StaticContextCount,
 	}
@@ -226,12 +226,12 @@ func (e *LogEntry) Clone() *LogEntry {
 	copy(clone.StaticFields, e.StaticFields)
 	copy(clone.StaticContext, e.StaticContext)
 
-	// Clone quantum store if present
-	if e.QuantumStore != nil {
-		clone.QuantumStore = NewEnhancedQuantumFieldStore(64) // Default chunk size
-		// Copy all fields from original quantum store
-		e.QuantumStore.Iterate(func(key, value string) {
-			clone.QuantumStore.Set(key, value)
+	// Clone Indexed store if present
+	if e.IndexedStore != nil {
+		clone.IndexedStore = NewIndexedFieldStore(64) // Default chunk size
+		// Copy all fields from original Indexed store
+		e.IndexedStore.Iterate(func(key, value string) {
+			clone.IndexedStore.Set(key, value)
 		})
 	}
 
@@ -268,7 +268,7 @@ func (e *LogEntry) ToString() string {
 		sb.WriteString("]")
 	}
 
-	// Get all fields (both typed and quantum)
+	// Get all fields (both typed and Indexed)
 	allFields := e.GetAllFields()
 	if len(allFields) > 0 {
 		sb.WriteString(" Fields: {")

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package types coverage tests for adapters, registries, clocks, formatters,
-// config accessors, and LogEntry quantum-storage integration.
+// config accessors, and LogEntry Indexed-storage integration.
 // @author Admilson B. F. Cossa
 
 package types
@@ -277,56 +277,56 @@ func TestLoggerConfig_Accessors(t *testing.T) {
 	}
 }
 
-func TestLogEntry_QuantumIntegration_EnableAndInspect(t *testing.T) {
+func TestLogEntry_IndexedIntegration_EnableAndInspect(t *testing.T) {
 	e := NewLogEntry(InfoLevel, "x")
 
-	// Enabling quantum storage installs a store.
-	e.EnableQuantumStorage(32)
-	if !e.IsUsingQuantumStorage() {
-		t.Fatal("IsUsingQuantumStorage should be true after enable")
+	// Enabling Indexed storage installs a store.
+	e.EnableIndexedStorage(32)
+	if !e.IsUsingIndexedStorage() {
+		t.Fatal("IsUsingIndexedStorage should be true after enable")
 	}
 
-	// NOTE: e.AddQuantumField(...) is intentionally NOT exercised here.
-	// LogEntry.EnableQuantumStorage constructs the store with a nil
-	// FieldDictionary, so AddQuantumField -> Set -> getOrCreateFieldID falls
+	// NOTE: e.AddIndexedField(...) is intentionally NOT exercised here.
+	// LogEntry.EnableIndexedStorage constructs the store with a nil
+	// FieldDictionary, so AddIndexedField -> Set -> getOrCreateFieldID falls
 	// back to hashString(key), producing enormous field IDs and an
 	// effectively unbounded growChunk loop (hang/OOM). See the returned bug
 	// report. We instead drive the store directly via a bounded dictionary
-	// in TestLogEntry_QuantumIntegration_DictionaryBacked.
+	// in TestLogEntry_IndexedIntegration_DictionaryBacked.
 
-	// GetQuantumField on an empty store returns not-found without hanging.
-	if _, ok := e.GetQuantumField("nope"); ok {
-		t.Errorf("GetQuantumField missing should be false")
+	// GetIndexedField on an empty store returns not-found without hanging.
+	if _, ok := e.GetIndexedField("nope"); ok {
+		t.Errorf("GetIndexedField missing should be false")
 	}
 
-	// GetAllFields on an entry with an empty quantum store is safe.
+	// GetAllFields on an entry with an empty Indexed store is safe.
 	if all := e.GetAllFields(); all == nil {
 		t.Errorf("GetAllFields should return a (possibly empty) slice")
 	}
 
-	// MergeQuantumFieldsIntoTyped with an empty store is a no-op.
+	// MergeIndexedFieldsIntoTyped with an empty store is a no-op.
 	before := len(e.Fields)
-	e.MergeQuantumFieldsIntoTyped()
+	e.MergeIndexedFieldsIntoTyped()
 	if len(e.Fields) != before {
-		t.Errorf("MergeQuantumFieldsIntoTyped on empty store should not change Fields")
+		t.Errorf("MergeIndexedFieldsIntoTyped on empty store should not change Fields")
 	}
 }
 
-func TestLogEntry_QuantumIntegration_DictionaryBacked(t *testing.T) {
-	// Exercise the quantum-store integration on a LogEntry by injecting a
+func TestLogEntry_IndexedIntegration_DictionaryBacked(t *testing.T) {
+	// Exercise the Indexed-store integration on a LogEntry by injecting a
 	// bounded dictionary-backed store, avoiding the nil-dictionary hash-ID hang.
 	e := NewLogEntry(InfoLevel, "x")
 	dict := newTestDictionary()
-	e.QuantumStore = NewEnhancedQuantumFieldStoreWithDict(16, dict)
-	e.UseQuantumStorage = true
+	e.IndexedStore = NewIndexedFieldStoreWithDict(16, dict)
+	e.UseIndexedStorage = true
 
-	e.QuantumStore.Set("qk", "qv")
+	e.IndexedStore.Set("qk", "qv")
 
-	if v, ok := e.GetQuantumField("qk"); !ok || v != "qv" {
-		t.Errorf("quantum field roundtrip wrong: %v %v", v, ok)
+	if v, ok := e.GetIndexedField("qk"); !ok || v != "qv" {
+		t.Errorf("Indexed field roundtrip wrong: %v %v", v, ok)
 	}
 
-	// GetAllFields includes quantum fields.
+	// GetAllFields includes Indexed fields.
 	all := e.GetAllFields()
 	found := false
 	for _, f := range all {
@@ -335,25 +335,25 @@ func TestLogEntry_QuantumIntegration_DictionaryBacked(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("GetAllFields should include quantum field 'qk': %+v", all)
+		t.Errorf("GetAllFields should include Indexed field 'qk': %+v", all)
 	}
 
-	// MergeQuantumFieldsIntoTyped copies quantum fields into Fields.
+	// MergeIndexedFieldsIntoTyped copies Indexed fields into Fields.
 	before := len(e.Fields)
-	e.MergeQuantumFieldsIntoTyped()
+	e.MergeIndexedFieldsIntoTyped()
 	if len(e.Fields) <= before {
-		t.Errorf("MergeQuantumFieldsIntoTyped should append fields (before=%d after=%d)", before, len(e.Fields))
+		t.Errorf("MergeIndexedFieldsIntoTyped should append fields (before=%d after=%d)", before, len(e.Fields))
 	}
 }
 
-func TestLogEntry_QuantumNotEnabled(t *testing.T) {
+func TestLogEntry_IndexedNotEnabled(t *testing.T) {
 	e := NewLogEntry(InfoLevel, "x")
-	if e.IsUsingQuantumStorage() {
-		t.Error("fresh entry should not use quantum storage")
+	if e.IsUsingIndexedStorage() {
+		t.Error("fresh entry should not use Indexed storage")
 	}
-	if _, ok := e.GetQuantumField("k"); ok {
-		t.Error("GetQuantumField with no store should be false")
+	if _, ok := e.GetIndexedField("k"); ok {
+		t.Error("GetIndexedField with no store should be false")
 	}
-	// MergeQuantumFieldsIntoTyped is a no-op when no store present.
-	e.MergeQuantumFieldsIntoTyped()
+	// MergeIndexedFieldsIntoTyped is a no-op when no store present.
+	e.MergeIndexedFieldsIntoTyped()
 }
