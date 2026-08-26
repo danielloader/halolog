@@ -71,16 +71,10 @@ func acquireState(l *Logger) *perPState {
 	return s
 }
 
-// addField writes one field into the line, shared by the typed builder and the
-// level-first Line API (kd nil ⇒ plain string key). On the direct fast path the
-// field is encoded to JSON bytes immediately via a static package call
-// (zerolog-style, no struct capture); otherwise it is captured as a
-// TypedFieldData for the formatter. Both paths allocate nothing.
-func addField(s *perPState, kd *types.FieldKey, key string, val types.FieldValue) {
-	if s.directJSON != nil {
-		s.directFields = jsonfmt.AppendField(s.directFields, kd, key, val)
-		return
-	}
+// captureField stores one field as a TypedFieldData for the formatter — the
+// capture path used when the line cannot direct-encode (multiple adapters,
+// masking, a non-JSON formatter). Allocation-free up to the 64-slot buffer.
+func captureField(s *perPState, kd *types.FieldKey, key string, val types.FieldValue) {
 	entry := &s.entry
 	n := entry.StaticFieldCount
 	if n < len(entry.StaticFields) {
@@ -91,45 +85,128 @@ func addField(s *perPState, kd *types.FieldKey, key string, val types.FieldValue
 	}
 }
 
-// withTyped acquires the pooled state on the first field and adds a
-// string-keyed typed value.
-func (fb TypedFieldBuilder) withTyped(key string, val types.FieldValue) TypedFieldBuilder {
-	if fb.state == nil {
-		fb = fb.acquire()
+// addField writes one generic FieldValue into the line (kd nil ⇒ plain string
+// key). Kept for Any-kind values; the known-type setters below use the
+// per-type helpers instead, which skip the FieldValue box entirely on the
+// direct path — profiling showed the box and its call funnel costing more
+// than the actual byte encoding on field-heavy lines.
+func addField(s *perPState, kd *types.FieldKey, key string, val types.FieldValue) {
+	if s.directJSON != nil {
+		s.directFields = jsonfmt.AppendField(s.directFields, kd, key, val)
+		return
 	}
-	addField(fb.state, nil, key, val)
-	return fb
+	captureField(s, kd, key, val)
+}
+
+// Per-type field writers, shared by the typed builder and the Line API. On the
+// direct fast path each appends `,"key":value` bytes immediately (the
+// zerolog/phuslu model — no intermediate struct); on the capture path the
+// FieldValue box is built only then, where it is actually needed.
+
+func addStr(s *perPState, kd *types.FieldKey, key, value string) {
+	if s.directJSON != nil {
+		s.directFields = jsonfmt.AppendStringField(s.directFields, kd, key, value)
+		return
+	}
+	captureField(s, kd, key, types.StringValue(value))
+}
+
+func addInt(s *perPState, kd *types.FieldKey, key string, value int) {
+	if s.directJSON != nil {
+		s.directFields = jsonfmt.AppendIntField(s.directFields, kd, key, int64(value))
+		return
+	}
+	captureField(s, kd, key, types.IntValue(value))
+}
+
+func addInt64(s *perPState, kd *types.FieldKey, key string, value int64) {
+	if s.directJSON != nil {
+		s.directFields = jsonfmt.AppendIntField(s.directFields, kd, key, value)
+		return
+	}
+	captureField(s, kd, key, types.Int64Value(value))
+}
+
+func addFloat64(s *perPState, kd *types.FieldKey, key string, value float64) {
+	if s.directJSON != nil {
+		s.directFields = jsonfmt.AppendFloat64Field(s.directFields, kd, key, value)
+		return
+	}
+	captureField(s, kd, key, types.Float64Value(value))
+}
+
+func addBool(s *perPState, kd *types.FieldKey, key string, value bool) {
+	if s.directJSON != nil {
+		s.directFields = jsonfmt.AppendBoolField(s.directFields, kd, key, value)
+		return
+	}
+	captureField(s, kd, key, types.BoolValue(value))
+}
+
+// addErr renders exactly like a string field of err.Error() on the direct
+// path (KindError and KindString encode identically) while the capture path
+// keeps the Error kind for maskers and adapters. err must be non-nil.
+func addErr(s *perPState, kd *types.FieldKey, key string, err error) {
+	if s.directJSON != nil {
+		s.directFields = jsonfmt.AppendStringField(s.directFields, kd, key, err.Error())
+		return
+	}
+	captureField(s, kd, key, types.ErrorValue(err))
 }
 
 // WithString adds a string field without interface{} boxing.
 func (fb TypedFieldBuilder) WithString(key string, value string) TypedFieldBuilder {
-	return fb.withTyped(key, types.StringValue(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addStr(fb.state, nil, key, value)
+	return fb
 }
 
 // WithInt adds an int field without interface{} boxing.
 func (fb TypedFieldBuilder) WithInt(key string, value int) TypedFieldBuilder {
-	return fb.withTyped(key, types.IntValue(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addInt(fb.state, nil, key, value)
+	return fb
 }
 
 // WithInt64 adds an int64 field without interface{} boxing.
 func (fb TypedFieldBuilder) WithInt64(key string, value int64) TypedFieldBuilder {
-	return fb.withTyped(key, types.Int64Value(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addInt64(fb.state, nil, key, value)
+	return fb
 }
 
 // WithFloat64 adds a float64 field without interface{} boxing.
 func (fb TypedFieldBuilder) WithFloat64(key string, value float64) TypedFieldBuilder {
-	return fb.withTyped(key, types.Float64Value(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addFloat64(fb.state, nil, key, value)
+	return fb
 }
 
 // WithBool adds a bool field without interface{} boxing.
 func (fb TypedFieldBuilder) WithBool(key string, value bool) TypedFieldBuilder {
-	return fb.withTyped(key, types.BoolValue(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addBool(fb.state, nil, key, value)
+	return fb
 }
 
 // WithAny adds an arbitrary value under a plain string key. Prefer the typed
 // setters on hot paths — Any values box through an interface.
 func (fb TypedFieldBuilder) WithAny(key string, value interface{}) TypedFieldBuilder {
-	return fb.withTyped(key, types.AnyValue(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addField(fb.state, nil, key, types.AnyValue(value))
+	return fb
 }
 
 // WithError adds an error field without interface{} boxing. A nil error is a
@@ -138,46 +215,58 @@ func (fb TypedFieldBuilder) WithError(err error) TypedFieldBuilder {
 	if err == nil {
 		return fb
 	}
-	return fb.withTyped("error", types.ErrorValue(err))
-}
-
-// withKeyed writes a field under a pre-declared key, carrying the key's
-// pre-escaped fragment so the formatter emits it without escaping. Mirrors
-// withTyped but stores the FieldKey descriptor.
-func (fb TypedFieldBuilder) withKeyed(key *types.FieldKey, val types.FieldValue) TypedFieldBuilder {
 	if fb.state == nil {
 		fb = fb.acquire()
 	}
-	// Fastest path in the logger: on the direct route the pre-escaped `,"key":`
-	// fragment is a single memcpy — no key escaping, no struct capture.
-	addField(fb.state, key, key.Name, val)
+	addErr(fb.state, nil, "error", err)
 	return fb
 }
 
-// Str adds a string field under a pre-declared key (fastest path — the key is
-// never escaped at log time). Pair with a package-level key from Key(...).
+// Str adds a string field under a pre-declared key (fastest path — the
+// pre-escaped `,"key":` fragment is a single memcpy, never escaped at log
+// time). Pair with a package-level key from Key(...).
 func (fb TypedFieldBuilder) Str(key *types.FieldKey, value string) TypedFieldBuilder {
-	return fb.withKeyed(key, types.StringValue(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addStr(fb.state, key, key.Name, value)
+	return fb
 }
 
 // Int adds an int field under a pre-declared key.
 func (fb TypedFieldBuilder) Int(key *types.FieldKey, value int) TypedFieldBuilder {
-	return fb.withKeyed(key, types.IntValue(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addInt(fb.state, key, key.Name, value)
+	return fb
 }
 
 // Int64 adds an int64 field under a pre-declared key.
 func (fb TypedFieldBuilder) Int64(key *types.FieldKey, value int64) TypedFieldBuilder {
-	return fb.withKeyed(key, types.Int64Value(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addInt64(fb.state, key, key.Name, value)
+	return fb
 }
 
 // Float64 adds a float64 field under a pre-declared key.
 func (fb TypedFieldBuilder) Float64(key *types.FieldKey, value float64) TypedFieldBuilder {
-	return fb.withKeyed(key, types.Float64Value(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addFloat64(fb.state, key, key.Name, value)
+	return fb
 }
 
 // Bool adds a bool field under a pre-declared key.
 func (fb TypedFieldBuilder) Bool(key *types.FieldKey, value bool) TypedFieldBuilder {
-	return fb.withKeyed(key, types.BoolValue(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addBool(fb.state, key, key.Name, value)
+	return fb
 }
 
 // Err adds an error field under a pre-declared key. A nil error is a no-op.
@@ -185,14 +274,22 @@ func (fb TypedFieldBuilder) Err(key *types.FieldKey, err error) TypedFieldBuilde
 	if err == nil {
 		return fb
 	}
-	return fb.withKeyed(key, types.ErrorValue(err))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addErr(fb.state, key, key.Name, err)
+	return fb
 }
 
 // Any adds an arbitrary value under a pre-declared key. Prefer the typed methods
 // on the hot path; Any is a convenience for values whose type is not known ahead
 // of time.
 func (fb TypedFieldBuilder) Any(key *types.FieldKey, value interface{}) TypedFieldBuilder {
-	return fb.withKeyed(key, types.AnyValue(value))
+	if fb.state == nil {
+		fb = fb.acquire()
+	}
+	addField(fb.state, key, key.Name, types.AnyValue(value))
+	return fb
 }
 
 // Info logs an info message with the accumulated typed fields.

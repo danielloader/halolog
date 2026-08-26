@@ -66,84 +66,115 @@ func (l *Logger) WarnLine() Line { return l.line(types.WarnLevel) }
 // ErrorLine opens an ERROR-level line.
 func (l *Logger) ErrorLine() Line { return l.line(types.ErrorLevel) }
 
-// add appends one field unless the line is disabled or already dispatched.
-func (ln Line) add(kd *types.FieldKey, key string, val types.FieldValue) Line {
-	if ln.s != nil && ln.s.epoch == ln.epoch {
-		addField(ln.s, kd, key, val)
-	}
-	return ln
+// live reports whether the line may still accept fields: not disabled and not
+// already dispatched (epoch guard).
+func (ln Line) live() bool {
+	return ln.s != nil && ln.s.epoch == ln.epoch
 }
 
 // Str adds a string field under a pre-declared key.
 func (ln Line) Str(key *types.FieldKey, value string) Line {
-	return ln.add(key, keyName(key), types.StringValue(value))
+	if ln.live() {
+		addStr(ln.s, key, keyName(key), value)
+	}
+	return ln
 }
 
 // Int adds an int field under a pre-declared key.
 func (ln Line) Int(key *types.FieldKey, value int) Line {
-	return ln.add(key, keyName(key), types.IntValue(value))
+	if ln.live() {
+		addInt(ln.s, key, keyName(key), value)
+	}
+	return ln
 }
 
 // Int64 adds an int64 field under a pre-declared key.
 func (ln Line) Int64(key *types.FieldKey, value int64) Line {
-	return ln.add(key, keyName(key), types.Int64Value(value))
+	if ln.live() {
+		addInt64(ln.s, key, keyName(key), value)
+	}
+	return ln
 }
 
 // Float64 adds a float64 field under a pre-declared key.
 func (ln Line) Float64(key *types.FieldKey, value float64) Line {
-	return ln.add(key, keyName(key), types.Float64Value(value))
+	if ln.live() {
+		addFloat64(ln.s, key, keyName(key), value)
+	}
+	return ln
 }
 
 // Bool adds a bool field under a pre-declared key.
 func (ln Line) Bool(key *types.FieldKey, value bool) Line {
-	return ln.add(key, keyName(key), types.BoolValue(value))
+	if ln.live() {
+		addBool(ln.s, key, keyName(key), value)
+	}
+	return ln
 }
 
 // Err adds an error field under a pre-declared key. A nil error is a no-op.
 func (ln Line) Err(key *types.FieldKey, err error) Line {
-	if err == nil {
-		return ln
+	if err != nil && ln.live() {
+		addErr(ln.s, key, keyName(key), err)
 	}
-	return ln.add(key, keyName(key), types.ErrorValue(err))
+	return ln
 }
 
 // Any adds an arbitrary value under a pre-declared key. Prefer the typed
 // methods on hot paths.
 func (ln Line) Any(key *types.FieldKey, value interface{}) Line {
-	return ln.add(key, keyName(key), types.AnyValue(value))
+	if ln.live() {
+		addField(ln.s, key, keyName(key), types.AnyValue(value))
+	}
+	return ln
 }
 
 // WithString adds a string field under a plain string key.
 func (ln Line) WithString(key, value string) Line {
-	return ln.add(nil, key, types.StringValue(value))
+	if ln.live() {
+		addStr(ln.s, nil, key, value)
+	}
+	return ln
 }
 
 // WithInt adds an int field under a plain string key.
 func (ln Line) WithInt(key string, value int) Line {
-	return ln.add(nil, key, types.IntValue(value))
+	if ln.live() {
+		addInt(ln.s, nil, key, value)
+	}
+	return ln
 }
 
 // WithInt64 adds an int64 field under a plain string key.
 func (ln Line) WithInt64(key string, value int64) Line {
-	return ln.add(nil, key, types.Int64Value(value))
+	if ln.live() {
+		addInt64(ln.s, nil, key, value)
+	}
+	return ln
 }
 
 // WithFloat64 adds a float64 field under a plain string key.
 func (ln Line) WithFloat64(key string, value float64) Line {
-	return ln.add(nil, key, types.Float64Value(value))
+	if ln.live() {
+		addFloat64(ln.s, nil, key, value)
+	}
+	return ln
 }
 
 // WithBool adds a bool field under a plain string key.
 func (ln Line) WithBool(key string, value bool) Line {
-	return ln.add(nil, key, types.BoolValue(value))
+	if ln.live() {
+		addBool(ln.s, nil, key, value)
+	}
+	return ln
 }
 
 // WithError adds an error field under the "error" key. A nil error is a no-op.
 func (ln Line) WithError(err error) Line {
-	if err == nil {
-		return ln
+	if err != nil && ln.live() {
+		addErr(ln.s, nil, "error", err)
 	}
-	return ln.add(nil, "error", types.ErrorValue(err))
+	return ln
 }
 
 // Msg completes the line with a message and writes it. On a disabled line it

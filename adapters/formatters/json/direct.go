@@ -49,6 +49,44 @@ func AppendField(dst []byte, kd *types.FieldKey, key string, v types.FieldValue)
 	return appendValue(dst, &v, nil)
 }
 
+// The typed Append*Field helpers below are the per-type fast lane of the
+// direct-append path: a builder that already knows the value's type appends
+// `,"key":value` in one call, with no FieldValue box constructed or copied in
+// between. Profiling showed that box + its call funnel costing ~72% of a
+// ten-field line — more than the actual byte encoding. Each helper is
+// byte-identical to appendValue's rendering of the corresponding kind
+// (guarded by the direct-vs-capture identity tests).
+
+// AppendStringField appends `,"key":"value"` with the value escaped.
+func AppendStringField(dst []byte, kd *types.FieldKey, key, value string) []byte {
+	dst = appendKeyPrefix(dst, kd, key)
+	dst = append(dst, '"')
+	dst = appendJSONString(dst, value)
+	return append(dst, '"')
+}
+
+// AppendIntField appends `,"key":value` for an integer.
+func AppendIntField(dst []byte, kd *types.FieldKey, key string, value int64) []byte {
+	dst = appendKeyPrefix(dst, kd, key)
+	return appendInt(dst, value)
+}
+
+// AppendFloat64Field appends `,"key":value` for a float64 (non-finite values
+// render as quoted strings, matching appendValue).
+func AppendFloat64Field(dst []byte, kd *types.FieldKey, key string, value float64) []byte {
+	dst = appendKeyPrefix(dst, kd, key)
+	return appendFloat(dst, value, 64)
+}
+
+// AppendBoolField appends `,"key":true|false`.
+func AppendBoolField(dst []byte, kd *types.FieldKey, key string, value bool) []byte {
+	dst = appendKeyPrefix(dst, kd, key)
+	if value {
+		return append(dst, "true"...)
+	}
+	return append(dst, "false"...)
+}
+
 // The *Formatter methods below satisfy types.DirectFieldEncoder by delegating to
 // the package helpers, so a core dispatcher can direct-encode a line that is
 // byte-identical to Format's output (guarded by TestDirectMatchesFormat).
