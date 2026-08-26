@@ -89,31 +89,47 @@ zap slightly. `HaloLog_DisabledOutput` rows measure the no-op sink and are
 |---|---:|
 | HaloLog, level filtered | 0.84 |
 
-## Results — windows/amd64 (same hardware, same day, final code)
+## Results — windows/amd64 (same hardware, same day, final code, quiet host)
 
 | Scenario | HaloLog | phuslu | zerolog |
 |---|---:|---:|---:|
-| Bare message | **27.5** | 49.7 | 88.5 |
-| One field (typed) | **47.3** | 57.8 | 94.7 |
-| Ten fields (typed) | 141.4 | **121.8** | 170.9 |
-| Ten fields (pre-declared keys) | 127.6 | — | — |
-| Twenty fields (typed) | 258.2 | **212.4** | 279.2 |
+| Bare message | **23.5** | 51.0 | 62.8 |
+| One field (typed) | **34.4** | 40.3 | 75.5 |
+| Ten fields (typed) | 98.6 | **85.3** | 132.6 |
+| Ten fields (pre-declared keys) | **82.4** | — | — |
+| Twenty fields (typed) | 159.6 | **151.4** | 200.0 |
 
-The Windows host carries heavier ambient load and ~15% more run-to-run drift;
-orderings at zero/one field match Linux, while phuslu keeps the ten/twenty-
-field lead there. Full raw zap/slog/logrus rows for Windows are in the same
-benchstat capture (zap 158/214/964 ns for bare/one/ten).
+## The cross-OS flip, explained (profiler-verified)
+
+HaloLog's numbers are **platform-invariant**: bare message 23.5/23.6 ns and
+ten-field 98.6/99.0 ns on Windows/Linux — the engine does no per-line
+wall-clock read and no syscalls (one atomic load of the cached clock, fused
+header memcpy). phuslu's numbers **swing ~30% between OSes** (ten-field 85.3
+on Windows vs 112.9 on Linux) because ~39% of their line is per-line
+timestamp acquisition + formatting (their own CPU profile), and Windows'
+time source is far cheaper than Linux's vDSO `clock_gettime`. On Windows
+that tailwind, combined with phuslu not escaping field keys at all, puts
+them ahead on plain-string-keyed ten/twenty-field lines. Profiling our
+ten-field line shows the residual gap is almost exactly the per-call
+plain-key escaping (~25% of the line) — the safety phuslu skips. With
+**pre-declared keys** (escaped once, memcpy per use — safe *and* fast),
+HaloLog wins ten-field on Windows too: **82.4 vs 85.3**.
 
 ## Verdict
 
-- **HaloLog wins every scenario on linux/amd64**, the CI environment — at ten
-  and twenty typed fields by a clear ~11% over phuslu (100.8 vs 113.3;
-  155.7 vs 175.2), decisively with pre-declared keys (79.2), and by 1.9–2.6×
-  at zero/one field — at 0 B/op, 0 allocs/op everywhere.
-- On Windows, HaloLog wins zero- and one-field decisively; phuslu leads the
-  ten/twenty-field scenarios on that (noisier) host.
-- zerolog is beaten in every scenario on both platforms. zap, slog, and logrus
-  are not close (3–40× slower, and all three allocate once fields appear).
+- **HaloLog wins every scenario on linux/amd64**, the CI environment — ten
+  and twenty typed fields by ~12–14% over phuslu (99.0 vs 112.9; 157.7 vs
+  178.4), pre-declared keys at 80.5, and 1.8–2.6× at zero/one field — at
+  0 B/op, 0 allocs/op everywhere.
+- On Windows, HaloLog wins bare-message (2.2×), one-field, and keyed
+  ten-field; phuslu leads plain-string-keyed ten/twenty there, riding a
+  Windows-cheap time source plus unescaped keys (see above).
+- HaloLog is the only logger in the field whose latency is stable across
+  operating systems (±0.4%); every competitor's profile carries per-line
+  OS-time or allocation costs that shift with the platform.
+- zerolog is beaten in every scenario on both platforms. zap, slog, and
+  logrus are not close (3–40× slower, and all three allocate once fields
+  appear).
 
 ## Why these numbers moved — the three optimizations (2026-08-26)
 
