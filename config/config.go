@@ -24,8 +24,6 @@ import (
 	"time"
 
 	"github.com/go-gen-ecosystem/halolog/masking"
-
-	"github.com/go-gen-ecosystem/halolog/interfaces"
 	"github.com/go-gen-ecosystem/halolog/registry"
 	"github.com/go-gen-ecosystem/halolog/types"
 )
@@ -52,7 +50,7 @@ type ImmutableConfig struct {
 	WorkerCount int
 
 	// Policy rules for filtering
-	PolicyRules []interfaces.PolicyRule
+	PolicyRules []PolicyRule
 
 	// Panic function for panic logs
 	PanicFunc func(string)
@@ -92,7 +90,7 @@ type ConfigBuilder struct {
 	lineInDebug     bool
 	lineInError     bool
 	verbose         bool
-	errorHandler    interfaces.ErrorHandler
+	errorHandler    ErrorHandler
 	exitFunc        func(int)    // Allows custom exit logic for testing
 	panicFunc       func(string) // Allows custom panic logic for testing
 
@@ -155,9 +153,9 @@ func (c *ConfigBuilder) Build() *ImmutableConfig {
 	maskingRules = append(maskingRules, c.maskingRules...) // Add custom rules
 
 	// Convert policy rules
-	policyRules := make([]interfaces.PolicyRule, 0, len(c.policyRules))
+	policyRules := make([]PolicyRule, 0, len(c.policyRules))
 	for _, rule := range c.policyRules {
-		policyRules = append(policyRules, interfaces.PolicyRule{
+		policyRules = append(policyRules, PolicyRule{
 			Name:    rule.Name,
 			Pattern: rule.Pattern,
 			Action:  rule.Action,
@@ -480,7 +478,7 @@ func (c *ConfigBuilder) WithVerbose(verbose bool) *ConfigBuilder {
 }
 
 // WithErrorHandler sets the error handler callback
-func (c *ConfigBuilder) WithErrorHandler(handler interfaces.ErrorHandler) *ConfigBuilder {
+func (c *ConfigBuilder) WithErrorHandler(handler ErrorHandler) *ConfigBuilder {
 	c.errorHandler = handler
 	return c
 }
@@ -762,7 +760,7 @@ func LoadFromEnv() *ConfigBuilder {
 	return builder
 }
 
-// Interface methods for ImmutableConfig - implements interfaces.Config
+// Interface methods for ImmutableConfig - implements Config
 
 // GetLevel returns the log level
 func (c *ImmutableConfig) GetLevel() types.LogLevel {
@@ -786,9 +784,9 @@ func (c *ImmutableConfig) IsPrettyPrint() bool {
 }
 
 // GetAdapters returns the configured adapters
-func (c *ImmutableConfig) GetAdapters() []interfaces.Adapter {
-	// Convert types.Adapter to interfaces.Adapter
-	adapters := make([]interfaces.Adapter, len(c.Adapters))
+func (c *ImmutableConfig) GetAdapters() []Adapter {
+	// Convert types.Adapter to Adapter
+	adapters := make([]Adapter, len(c.Adapters))
 	for i, adapter := range c.Adapters {
 		adapters[i] = adapter
 	}
@@ -802,7 +800,7 @@ func (c *ImmutableConfig) GetMaskingRules() []types.MaskingRule {
 }
 
 // GetPolicyRules returns the policy rules
-func (c *ImmutableConfig) GetPolicyRules() []interfaces.PolicyRule {
+func (c *ImmutableConfig) GetPolicyRules() []PolicyRule {
 	return c.PolicyRules
 }
 
@@ -834,7 +832,7 @@ func (c *ImmutableConfig) IsVerbose() bool {
 }
 
 // GetErrorHandler returns the error handler
-func (c *ImmutableConfig) GetErrorHandler() interfaces.ErrorHandler {
+func (c *ImmutableConfig) GetErrorHandler() ErrorHandler {
 	// Not stored in ImmutableConfig
 	return nil
 }
@@ -877,7 +875,7 @@ func (c *ImmutableConfig) GetFormatter() string {
 }
 
 // GetFileOutput returns the file output configuration
-func (c *ImmutableConfig) GetFileOutput() *interfaces.FileOutputConfig {
+func (c *ImmutableConfig) GetFileOutput() *FileOutputConfig {
 	// Not stored in ImmutableConfig
 	return nil
 }
@@ -889,7 +887,7 @@ func (c *ImmutableConfig) GetConsoleOutput() string {
 }
 
 // GetAsyncBuffer returns the async buffer configuration
-func (c *ImmutableConfig) GetAsyncBuffer() *interfaces.AsyncBufferConfig {
+func (c *ImmutableConfig) GetAsyncBuffer() *AsyncBufferConfig {
 	// Not stored in ImmutableConfig
 	return nil
 }
@@ -900,13 +898,13 @@ func (c *ImmutableConfig) IsAsyncEnabled() bool {
 }
 
 // GetPIIMasker returns the PII masker
-func (c *ImmutableConfig) GetPIIMasker() interfaces.PIIMasker {
+func (c *ImmutableConfig) GetPIIMasker() PIIMasker {
 	return c.Masker
 }
 
 // GetSampler returns the sampler
-func (c *ImmutableConfig) GetSampler() interfaces.Sampler {
-	// types.Sampler and interfaces.Sampler have different method signatures
+func (c *ImmutableConfig) GetSampler() Sampler {
+	// types.Sampler and Sampler have different method signatures
 	// Return nil for now as they are not directly compatible
 	return nil
 }

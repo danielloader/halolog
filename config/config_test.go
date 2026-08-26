@@ -20,7 +20,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/go-gen-ecosystem/halolog/interfaces"
 	"github.com/go-gen-ecosystem/halolog/types"
 )
 
@@ -664,7 +663,7 @@ func TestLoadFromEnv(t *testing.T) {
 	tests := []struct {
 		name         string
 		envVars      map[string]string
-		validateFunc func(t *testing.T, config interfaces.Config)
+		validateFunc func(t *testing.T, config Config)
 	}{
 		{
 			name: "All environment variables set",
@@ -675,7 +674,7 @@ func TestLoadFromEnv(t *testing.T) {
 				"LOG_PRETTY":            "false",
 				"LOG_DEBUG_BUFFER_SIZE": "2000",
 			},
-			validateFunc: func(t *testing.T, config interfaces.Config) {
+			validateFunc: func(t *testing.T, config Config) {
 				// Only test fields that exist in ImmutableConfig
 				if config.GetLevel() != types.ErrorLevel {
 					t.Errorf("Expected level ERROR, got %s", config.GetLevel())
@@ -695,7 +694,7 @@ func TestLoadFromEnv(t *testing.T) {
 				"APP_ENV":   "staging",
 				"LOG_LEVEL": "DEBUG",
 			},
-			validateFunc: func(t *testing.T, config interfaces.Config) {
+			validateFunc: func(t *testing.T, config Config) {
 				// Only test fields that exist in ImmutableConfig
 				if config.GetLevel() != types.DebugLevel {
 					t.Errorf("Expected level DEBUG, got %s", config.GetLevel())
@@ -715,7 +714,7 @@ func TestLoadFromEnv(t *testing.T) {
 			envVars: map[string]string{
 				"LOG_LEVEL": "INVALID",
 			},
-			validateFunc: func(t *testing.T, config interfaces.Config) {
+			validateFunc: func(t *testing.T, config Config) {
 				// Should default to types.InfoLevel when invalid level provided
 				if config.GetLevel() != types.InfoLevel {
 					t.Errorf("Expected level INFO (default), got %s", config.GetLevel())
@@ -727,7 +726,7 @@ func TestLoadFromEnv(t *testing.T) {
 			envVars: map[string]string{
 				"LOG_DEBUG_BUFFER_SIZE": "invalid",
 			},
-			validateFunc: func(t *testing.T, config interfaces.Config) {
+			validateFunc: func(t *testing.T, config Config) {
 				// Debug buffer size is not stored in ImmutableConfig
 				// This test verifies the configuration process works
 				if config == nil {
@@ -740,7 +739,7 @@ func TestLoadFromEnv(t *testing.T) {
 			envVars: map[string]string{
 				"LOG_DEBUG_BUFFER_SIZE": "0",
 			},
-			validateFunc: func(t *testing.T, config interfaces.Config) {
+			validateFunc: func(t *testing.T, config Config) {
 				// Debug buffer size is not stored in ImmutableConfig
 				// This test verifies the configuration process works
 				if config == nil {
@@ -751,7 +750,7 @@ func TestLoadFromEnv(t *testing.T) {
 		{
 			name:    "No environment variables",
 			envVars: map[string]string{},
-			validateFunc: func(t *testing.T, config interfaces.Config) {
+			validateFunc: func(t *testing.T, config Config) {
 				// Should use all defaults
 				// Only test fields that exist in ImmutableConfig
 				if config.GetLevel() != types.InfoLevel {
