@@ -373,30 +373,33 @@ includes phuslu/log, the fastest logger on public Go leaderboards. Run it
 yourself; numbers vary by machine.
 
 ```
-                       HaloLog   phuslu   zerolog     zap     slog   logrus
-Bare message           46.7 ns   61.2 ns   84.5 ns  142.7 ns  231.6   927 ns
-One field              44.8 ns   66.3 ns   95.2 ns  177.2 ns  304.1  1396 ns
-Ten fields            139.4 ns  109.2 ns  156.3 ns  396.8 ns  889.4  3713 ns
-Twenty fields         236.7 ns  177.2 ns  214.7 ns  351.2 ns      —       —
-Disabled level        0.82 ns         —        —        —       —        —
-HaloLog allocations   0 B/op, 0 allocs/op in every scenario
+                        HaloLog   phuslu   zerolog     zap     slog   logrus
+Bare message            23.9 ns   62.7 ns   90.7 ns  144.9 ns  235.0   967 ns
+One field (typed)       35.2 ns   68.0 ns   99.2 ns  180.7 ns  307.5  1421 ns
+Ten fields (typed)     105.2 ns  109.6 ns  162.1 ns  403.9 ns  907.7  3956 ns
+Ten fields (keyed)      80.1 ns        —        —        —        —       —
+Twenty fields (typed)  172.0 ns  175.2 ns  221.4 ns  352.4 ns      —       —
+Disabled level         0.81 ns         —        —        —        —       —
+HaloLog allocations    0 B/op, 0 allocs/op in every scenario
 ```
 
-Honest summary: **HaloLog is the fastest logger in this field for typical log
-lines (zero to a few fields) on both linux/amd64 and windows/amd64** — ~25–30%
-ahead of phuslu and ~45–50% ahead of zerolog — and allocation-free at every
-field count. On very field-heavy lines (ten or more), phuslu leads and zerolog
-is competitive; HaloLog beats zerolog at ten fields and trails it at twenty.
-Every hot path is guarded at **0 allocs/op** by
-`go test ./core -run TestZeroAlloc`.
+Honest summary: **HaloLog wins every scenario in this field on linux/amd64** —
+2.6× ahead of phuslu and 3.8× ahead of zerolog on bare messages, ahead by a
+nose at ten/twenty typed fields and decisively with pre-declared keys — at
+0 allocs/op everywhere. On windows/amd64 the orderings agree except ten-field
+plain-string keys, where phuslu keeps a small edge (the `Key()` API closes
+it). Full method, fairness notes, and per-platform tables:
+[`benchmarks/comprehensive_comparison.md`](benchmarks/comprehensive_comparison.md).
+Every hot path is pinned at **0 allocs/op** by seven committed guards
+(`go test ./core -run TestZeroAlloc`).
 
 ## 📊 Comparison with Other Loggers
 
 | Feature            | HaloLogger              | Zerolog           | phuslu/log        | Zap             | Logrus            |
 | ------------------ | ----------------------- | ----------------- | ----------------- | --------------- | ----------------- |
-| **Bare message**   | **46.7 ns · 0 B**       | 84.5 ns · 0 B     | 61.2 ns · 0 B     | 142.7 ns · 0 B  | 927 ns · 797 B    |
-| **One field**      | **44.8 ns · 0 B**       | 95.2 ns · 0 B     | 66.3 ns · 0 B     | 177.2 ns · 64 B | 1396 ns · 1.5 KiB |
-| **Ten fields**     | 139.4 ns · **0 B**      | 156.3 ns · 0 B    | **109.2 ns** · 0 B| 396.8 ns · 706 B| 3713 ns · 3.4 KiB |
+| **Bare message**   | **23.9 ns · 0 B**       | 90.7 ns · 0 B     | 62.7 ns · 0 B     | 144.9 ns · 0 B  | 967 ns · 797 B    |
+| **One field**      | **35.2 ns · 0 B**       | 99.2 ns · 0 B     | 68.0 ns · 0 B     | 180.7 ns · 64 B | 1421 ns · 1.5 KiB |
+| **Ten fields**     | **105.2 ns · 0 B**      | 162.1 ns · 0 B    | 109.6 ns · 0 B    | 403.9 ns · 706 B| 3956 ns · 3.4 KiB |
 | **Disabled level** | **0.8 ns**              | ~1 ns             | ~1 ns             | ~2 ns           | ~15 ns            |
 | **PII Masking**    | **✅ Built-in**         | ❌ External       | ❌ External       | ❌ External     | ❌ External       |
 | **File Rotation**  | **✅ Built-in**         | ❌ External       | ✅ Built-in       | ❌ External     | ❌ External       |

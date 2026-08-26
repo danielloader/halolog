@@ -64,6 +64,21 @@ All notable changes to HaloLog are documented here. This project adheres to
   `//go:inline` pseudo-directives (not a real compiler directive) removed.
 
 ### Changed (performance)
+- **Per-type direct append — the FieldValue funnel is gone from the fast
+  path.** Profiling showed 72% of a ten-field line spent building and
+  funneling a 56-byte value box per field. Typed and Line setters for known
+  types now append `,"key":value` bytes in one call on the direct path
+  (`jsonfmt.Append{String,Int,Float64,Bool}Field`); the box is built only for
+  capture. Ten-field typed 177→105 ns, twenty-field 328→172 ns (linux/amd64
+  medians), byte output unchanged, 0 allocs/op.
+- **Message-only lines take the direct byte path.** With a single raw-capable
+  JSON adapter, `Info(msg)` renders fused-header + closer straight into the
+  pooled line buffer — no LogEntry. Bare message 49→24 ns; a seventh
+  allocation guard pins the path at 0 allocs/op.
+- **Result:** HaloLog wins every scenario of the six-logger comparison on
+  linux/amd64 — including phuslu/log, the public-leaderboard leader — see
+  `benchmarks/comprehensive_comparison.md` (which now supersedes the stale
+  pre-v1.0 result files in that directory).
 - **Console adapter: formatting moved outside the write lock, formatter behind
   an atomic pointer.** The mutex now guards only the single `Write` call, so
   concurrent loggers contend for nanoseconds instead of encoding time, and
