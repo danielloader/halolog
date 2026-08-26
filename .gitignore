@@ -32,3 +32,7 @@ go.work.sum
 Thumbs.db
 .idea/
 .vscode/
+
+# Local-only staging for docs pending verification -- never tracked, never published
+TEMPDOCS/
+

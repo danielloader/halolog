@@ -18,7 +18,7 @@ A high-performance logging framework for Go with zero-allocation design, structu
 - **Alert integration** - Slack, PagerDuty, and webhook notifications
 - **Configuration management** - YAML, JSON, environment variables
 - **Thread-safe** - Lock-free design with per-P state architecture
-- **Enterprise compliance** - GDPR, HIPAA, SOX, PCI-DSS ready
+- **Compliance-friendly** - PII masking + field encryption as building blocks for GDPR/HIPAA-style data-handling policies
 
 ## 📦 Installation
 
@@ -292,15 +292,15 @@ sampler := sampling.NewAdaptiveSampler(sampling.AdaptiveConfig{
 ### Slack Alerts
 
 ```go
-import "github.com/go-gen-ecosystem/halolog/types"
+import "github.com/go-gen-ecosystem/halolog/alerts"
 
-sender := types.NewSlackSender(types.SlackAlertConfig{
+sender := alerts.NewSlackSender(alerts.SlackAlertConfig{
     WebhookURL: "https://hooks.slack.com/services/...",
     Channel:    "#alerts",
     RateLimit:  time.Minute,
 })
 
-sender.Send(&types.AlertPayload{
+sender.Send(&alerts.AlertPayload{
     Level:   "error",
     Message: "Critical error occurred",
 })
@@ -309,7 +309,7 @@ sender.Send(&types.AlertPayload{
 ### PagerDuty
 
 ```go
-sender := types.NewPagerDutySender(types.PagerDutyAlertConfig{
+sender := alerts.NewPagerDutySender(alerts.PagerDutyAlertConfig{
     IntegrationKey: "your-integration-key",
     Severity:       "critical",
 })

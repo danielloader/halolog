@@ -123,21 +123,25 @@ field and passing it through a two-call funnel) versus ~14% in actual byte
 encoding — while phuslu appends `,"key":value` bytes immediately per field.
 Three commits closed the gap and then some:
 
-1. **`d286fd0`** — console formatter behind an `atomic.Pointer`: the
-   per-line `DirectEncoder()` query became a lock-free load (was a mutex
-   pair), and formatting moved outside the write lock.
-2. **`cf3981a`** — per-type direct append: typed and Line setters for
+Commits are referenced by subject (stable across any history maintenance);
+find each with `git log --oneline --grep`.
+
+1. **"perf(console): format outside the write lock; lock-free formatter
+   access"** — the per-line `DirectEncoder()` query became a lock-free load
+   (was a mutex pair), and formatting moved outside the write lock.
+2. **"perf(core,json): per-type direct append"** — typed and Line setters for
    string/int/int64/float64/bool/error write bytes in one call on the direct
    path; the `FieldValue` box is built only where the capture path needs it.
    Ten-field typed 177→105 ns; twenty-field 328→172 ns.
-3. **`05077fd`** — message-only lines take the direct byte path: `Info(msg)`
-   renders fused-header + closer straight into the pooled line buffer, no
-   `LogEntry` touched. Bare message 49→24 ns.
-4. **`bc6068e`** — SWAR word-at-a-time escape scanning: the clean-string scan
-   processes eight bytes per fused load with branch-free hasless/haszero word
-   tricks, falling back to the exact per-byte path on any dirty word.
-   Byte-identical output (exhaustive oracle tests); 80-byte clean scan
-   23.5→14.3 ns, and it widened the Linux ten/twenty-field margins.
+3. **"perf(core): message-only lines take the direct byte path"** —
+   `Info(msg)` renders fused-header + closer straight into the pooled line
+   buffer, no `LogEntry` touched. Bare message 49→24 ns.
+4. **"perf(json): SWAR word-at-a-time escape scanning"** — the clean-string
+   scan processes eight bytes per fused load with branch-free
+   hasless/haszero word tricks, falling back to the exact per-byte path on
+   any dirty word. Byte-identical output (exhaustive oracle tests); 80-byte
+   clean scan 23.5→14.3 ns, and it widened the Linux ten/twenty-field
+   margins.
 
 Byte output is unchanged (pinned by direct-vs-capture identity tests) and every
 hot path stays 0 allocs/op under 7 committed allocation guards
