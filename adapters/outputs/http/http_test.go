@@ -813,9 +813,14 @@ func TestHTTPAdapter_Recovery(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// BatchSize is deliberately larger than any write burst below: filling a
+	// batch triggers an ASYNC flush, and under full-suite load that goroutine
+	// used to race the explicit doFlush calls and the serverUp toggles,
+	// making this test flaky. With only explicit flushes moving data, the
+	// sequence is deterministic.
 	adapter := NewHTTPAdapterWithOptions(&HTTPAdapterOptions{
 		URL:           server.URL,
-		BatchSize:     2,
+		BatchSize:     10,
 		FlushInterval: 0,
 	})
 	defer func() { _ = adapter.Close() }()
@@ -823,8 +828,9 @@ func TestHTTPAdapter_Recovery(t *testing.T) {
 	// Successful batch
 	_ = adapter.Write(&types.LogEntry{Message: "s1"})
 	_ = adapter.Write(&types.LogEntry{Message: "s2"})
-	_ = adapter.doFlush()
-	time.Sleep(50 * time.Millisecond)
+	if err := adapter.doFlush(); err != nil {
+		t.Fatalf("initial flush failed: %v", err)
+	}
 
 	// Server down
 	serverUp.Store(false)
@@ -839,7 +845,6 @@ func TestHTTPAdapter_Recovery(t *testing.T) {
 	_ = adapter.Write(&types.LogEntry{Message: "r1"})
 	_ = adapter.Write(&types.LogEntry{Message: "r2"})
 	_ = adapter.doFlush()
-	time.Sleep(200 * time.Millisecond) // Increased sleep time
 
 	actualCount := atomic.LoadInt32(&successCount)
 	actualRequests := atomic.LoadInt32(&requestCount)
