@@ -39,8 +39,9 @@ type Logger = *core.Logger
 //	log.Typed().Str(userID, "alice").Info("login")
 //
 // Use pre-declared keys in the hottest logging paths; the plain string-key API
-// (WithField/WithString) is equally correct and is auto-cached by the JSON
-// formatter after first use, at the cost of one lock-free map lookup per field.
+// (WithField/WithString) is equally correct — its keys are escaped inline per
+// call, which for the short keys typical of logging costs a table-driven scan
+// of the key bytes.
 func Key(name string) *types.FieldKey {
 	return &types.FieldKey{Name: name, JSONFragment: json.KeyFragment(name)}
 }

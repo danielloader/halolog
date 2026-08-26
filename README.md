@@ -252,6 +252,20 @@ logger.WithEncryptedField("ssn", "123-45-6789").
 
 ## 📊 Sampling
 
+Wire a sampler into the logger with `Sampling(...)`; every Trace–Error line is
+then offered to `ShouldSample` before it is written. Fatal and Panic lines are
+**never** sampled away — the last line before a crash always lands. Configuring
+a sampler keeps the capture path (it disables the direct-append fast path,
+since each line must be inspected).
+
+```go
+logger := core.New().
+    Level(types.InfoLevel).
+    Adapter(myAdapter).
+    Sampling(sampler).
+    MustBuild()
+```
+
 ### Count-Based Sampling
 
 ```go
@@ -351,27 +365,47 @@ export HALOLOG_FILE_PATH=/var/log/myapp.log
 
 ## 🏁 Performance Benchmarks
 
+Measured on Go 1.27.0, windows/amd64 (Intel Core Ultra 9 285HX), writing full
+JSON lines to a real (no-op sink) adapter via `benchmarks/` — the committed,
+fairness-audited comparison suite. Run it yourself; numbers vary by machine.
+
 ```
-BenchmarkLogger_Info-20                    100000000    6.5 ns/op    0 B/op    0 allocs/op
-BenchmarkLogger_WithField-20                 50000000    12.3 ns/op    0 B/op    0 allocs/op
-BenchmarkLogger_5Fields-20                   30000000    45.2 ns/op    0 B/op    0 allocs/op
-BenchmarkLogger_Parallel8-8                  50000000    25.3 ns/op    0 B/op    0 allocs/op
+BenchmarkInfo/HaloLog              53.0 ns/op     0 B/op    0 allocs/op
+BenchmarkInfo/Zerolog              68.0 ns/op     0 B/op    0 allocs/op
+BenchmarkInfo/Zap                 119.7 ns/op     0 B/op    0 allocs/op
+BenchmarkOneField/HaloLog_Typed    53.8 ns/op     0 B/op    0 allocs/op
+BenchmarkOneField/Zerolog          99.6 ns/op     0 B/op    0 allocs/op
+BenchmarkTenFields/HaloLog        ~195 ns/op      0 B/op    0 allocs/op
+BenchmarkTenFields/Zerolog        ~176 ns/op      0 B/op    0 allocs/op
+BenchmarkKeyed_TenFields/Keyed    ~181 ns/op      0 B/op    0 allocs/op
+Disabled level                     0.93 ns/op     0 B/op    0 allocs/op
 ```
+
+Honest summary: HaloLog leads at zero and one field and is allocation-free at
+every field count; at ten fields zerolog currently edges ahead (~10%) — the
+pre-declared-key API narrows that gap. Every hot path is guarded at
+**0 allocs/op** by `go test ./core -run TestZeroAlloc`.
 
 ## 📊 Comparison with Other Loggers
 
-| Feature            | HaloLogger          | Zap           | Logrus          | Zerolog       |
-| ------------------ | ------------------- | ------------- | --------------- | ------------- |
-| **Performance**    | **15M/sec**         | 5M/sec        | 500K/sec        | 10M/sec       |
-| **Allocation**     | **Zero (0 B/op)**   | Low (32 B/op) | High (256 B/op) | Low (16 B/op) |
-| **Latency**        | **6.5ns**           | 15ns          | 200ns           | 12ns          |
-| **PII Masking**    | **✅ Built-in**     | ❌ External   | ❌ External     | ❌ External   |
-| **File Rotation**  | **✅ Built-in**     | ❌ External   | ❌ External     | ❌ External   |
-| **Smart Sampling** | **✅ Adaptive**     | ❌ Manual     | ❌ Manual       | ❌ Manual     |
-| **Dynamic Levels** | **✅ Runtime**      | ❌ Static     | ❌ Static       | ❌ Static     |
-| **Alerting**       | **✅ Integrated**   | ❌ External   | ❌ External     | ❌ External   |
-| **Encryption**     | **✅ Field-level**  | ❌ External   | ❌ External     | ❌ External   |
-| **Configuration**  | **✅ Multi-format** | ❌ Code-only  | ❌ Code-only    | ❌ Code-only  |
+| Feature            | HaloLogger              | Zap             | Logrus            | Zerolog           |
+| ------------------ | ----------------------- | --------------- | ----------------- | ----------------- |
+| **Static string**  | **53 ns · 0 B/op**      | 120 ns · 0 B/op | 1269 ns · 797 B   | 68 ns · 0 B/op    |
+| **Ten fields**     | 195 ns · **0 B/op**     | 682 ns · 706 B  | 6459 ns · 3470 B  | **176 ns** · 0 B  |
+| **Disabled level** | **0.9 ns**              | ~2 ns           | ~15 ns            | ~1 ns             |
+| **PII Masking**    | **✅ Built-in**         | ❌ External     | ❌ External       | ❌ External       |
+| **File Rotation**  | **✅ Built-in**         | ❌ External     | ❌ External       | ❌ External       |
+| **Sampling**       | **✅ Adaptive**         | ✅ Basic        | ❌ Manual         | ✅ Basic          |
+| **Alerting**       | **✅ Integrated**       | ❌ External     | ❌ External       | ❌ External       |
+| **Encryption**     | **✅ Field-level**      | ❌ External     | ❌ External       | ❌ External       |
+| **Configuration**  | **✅ Multi-format**     | ❌ Code-only    | ❌ Code-only      | ❌ Code-only      |
+
+### Fatal and Panic semantics
+
+`Fatal(...)` writes the line, flushes every adapter, then calls `os.Exit(1)`;
+`Panic(...)` writes the line, then panics with the message — the same contract
+as zap, zerolog, logrus, and the standard library. Tests and embedders can
+intercept termination with `core.Config.ExitFunc`.
 
 ## 📚 Documentation
 

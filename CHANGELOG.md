@@ -8,7 +8,68 @@ All notable changes to HaloLog are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed (hardening)
+- **Linux/macOS build restored** — `syslog_unix.go` referenced a package-local
+  formatter deleted in an earlier refactor and had never compiled since; it now
+  uses `types.Formatter` with the text formatter as default. Stale
+  `amd64 || arm64` build tags on the (pure-Go) JSON/text formatters and a wrong
+  package clause in the file-lock fallback are gone: the module now builds on
+  windows, linux, darwin, 386, riscv64, and wasm.
+- **Level filtering on the classic fluent API** — `WithField(...).Info/Debug/…`
+  bypassed the level filter entirely; every FieldBuilder terminal now dispatches
+  through the same `dispatchLine` as the typed and Line APIs, which enforces
+  level, sampling, masking, and metrics identically everywhere.
+- **Sampling is real** — `Builder.Sampling`/`Config.Sampler` stored the sampler
+  but never consulted it. `ShouldSample` now gates every Trace–Error line on
+  all APIs (message-only, FieldBuilder, Typed, Line); Fatal/Panic are never
+  sampled away.
+- **Pooled-state corruption from builder reuse** — finishing a builder twice
+  double-released its pooled state, later handing one state to two live
+  builders (silent wrong-field attribution). A generation (epoch) counter on
+  the pooled state turns any use-after-terminal into a no-op; a second
+  `Line.Msg` no longer nil-panics either. Zero measured cost.
+- **Data races** — `SensitiveFieldRegistry` hit/miss/check counters (bumped on
+  the query path under at most an RLock) are now atomic; the HTTP and file
+  adapters' runtime-swappable formatters are now behind `atomic.Pointer`, so
+  `SetFormatter` can no longer tear the interface value an in-flight write is
+  reading.
+- **HTTP retry aliasing** — re-queued failed entries aliased a pooled slice
+  that the next flush overwrites; they are copied out before re-queueing. The
+  never-actually-used `http.Request` pool was removed, and the per-entry
+  scratch buffer is now reused across a batch.
+- **Non-finite floats** — NaN/±Inf rendered as bare `NaN`/`+Inf` (invalid
+  JSON); they now render as quoted strings, matching zerolog. Matters more
+  under Go 1.27, whose json/v2-backed parsers are stricter.
+- **Pre-epoch timestamps** — negative unix-nanos truncated toward zero and
+  rendered garbage fractional digits (`.+00`); seconds now floor-divide with a
+  non-negative remainder.
+- **`processExists` never worked** — it sent a nil `os.Signal`, which the os
+  package rejects on every platform, so live processes were judged dead and
+  their file locks stolen as "stale". Unix now probes with `signal 0` (EPERM
+  counts as alive), Windows opens a process handle, and other platforms
+  conservatively never break locks.
+- **Rotation shutdown race** — the async compress/cleanup goroutine is now
+  tracked by the adapter's WaitGroup, so `Close` waits for it instead of racing
+  file teardown.
+- **Fatal/Panic semantics** — `Fatal` now writes, flushes, and exits (code 1,
+  overridable via `Config.ExitFunc`); `Panic` writes and panics — the
+  conventional contract shared by zap/zerolog/logrus/stdlib. Previously both
+  just logged.
+- **Consistency sweep** — the discard fast path and metrics counting are now
+  symmetric across ALL levels (previously Info had a private shortcut and
+  Debug/Error/Trace/Fatal/Panic skipped metrics); pooled entries re-establish
+  their `StaticFields` backing on acquire and clear used field values on
+  release (no stale-PII retention); `Flush`/`Close` aggregate all adapter
+  errors with `errors.Join` instead of stopping at the first; ~80 inert
+  `//go:inline` pseudo-directives (not a real compiler directive) removed.
+
 ### Added
+- **Edge-case regression suite** (`tests/edge`) — 19 public-API tests pinning
+  the hardening pass: level filtering on every fluent API, sampler
+  consultation, JSON validity under hostile values (NaN/±Inf, control chars,
+  invalid UTF-8-adjacent input, 2 MiB payloads, 100-field lines), builder
+  use-after-terminal misuse, Fatal/Panic semantics, pre-epoch timestamps, and
+  concurrent line integrity.
 - **`log/slog` bridge** (`slogbridge`) — adopt HaloLog in slog-first codebases
   with one line: `slog.SetDefault(slog.New(slogbridge.New(logger)))`. Validated
   against the standard library conformance suite (`testing/slogtest`); groups are
