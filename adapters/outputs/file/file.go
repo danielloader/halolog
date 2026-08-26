@@ -379,8 +379,10 @@ type FileAdapter struct {
 	// Metrics
 	metrics *FileAdapterMetrics
 
-	// Formatter
-	formatter types.Formatter
+	// Formatter, swappable at runtime. Held behind an atomic pointer so a
+	// concurrent SetFormatter never tears the interface value a writer is
+	// reading (an interface write is two words and is not atomic on its own).
+	formatter atomic.Pointer[types.Formatter]
 }
 
 // NewFileAdapter creates hybrid adapter
@@ -405,10 +407,10 @@ func NewFileAdapter(path string, config *RotationConfig) (*FileAdapter, error) {
 		batchBuf:      make([]byte, 0, config.MaxBatchSize*2),
 		ring:          &ringBuffer{},
 		metrics:       &FileAdapterMetrics{},
-		formatter:     types.NewDefaultConsoleFormatter(),
 		cb:            newCircuitBreaker(config.CircuitThreshold, config.CircuitTimeout),
 		rl:            newRateLimiter(config.RateLimit, config.RateLimit > 0),
 	}
+	adapter.SetFormatter(types.NewDefaultConsoleFormatter())
 
 	// Cross-process lock if requested
 	if adapter.useFlock {
@@ -486,7 +488,7 @@ func (f *FileAdapter) Write(entry *types.LogEntry) error {
 	buf := *bufPtr
 	buf = buf[:0]
 
-	line := f.formatter.Format(entry, buf)
+	line := (*f.formatter.Load()).Format(entry, buf)
 	if len(line) == 0 {
 		return nil
 	}
@@ -677,9 +679,13 @@ func (f *FileAdapter) Name() string {
 	return "FileAdapter"
 }
 
-// SetFormatter sets the formatter used to render entries before writing.
+// SetFormatter sets the formatter used to render entries before writing
+// (nil is ignored). Safe to call concurrently with writes.
 func (f *FileAdapter) SetFormatter(formatter types.Formatter) {
-	f.formatter = formatter
+	if formatter == nil {
+		return
+	}
+	f.formatter.Store(&formatter)
 }
 
 // Health reports whether the adapter is open and its underlying file is writable.
@@ -799,8 +805,14 @@ func (f *FileAdapter) rotateLocked() error {
 		return fmt.Errorf("failed to open new log file: %w", err)
 	}
 
-	// Async compression and cleanup
-	go f.rotateAsync(backupName)
+	// Async compression and cleanup, tracked so Close waits for it. An
+	// untracked goroutine here raced shutdown: the process (or a test's temp
+	// dir) could tear the backup file down while compression was mid-read.
+	f.wg.Add(1)
+	go func() {
+		defer f.wg.Done()
+		f.rotateAsync(backupName)
+	}()
 
 	return nil
 }

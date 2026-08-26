@@ -80,6 +80,11 @@ func init() {
 	InitializeGlobalPool()
 }
 
+// defaultStaticFieldCap is the guaranteed minimum StaticFields backing an
+// acquired entry carries. Consumers (e.g. pipeline.SimplePipeline) branch on
+// cap(entry.StaticFields) to choose the zero-allocation static path.
+const defaultStaticFieldCap = 16
+
 // AcquireEntry returns a pooled entry
 func (p *EntryPool) AcquireEntry() *types.LogEntry {
 	if p == nil || !p.initialized.Load() || p.shutdown.Load() {
@@ -94,6 +99,16 @@ func (p *EntryPool) AcquireEntry() *types.LogEntry {
 	}
 	entry.StaticFieldCount = 0
 
+	// Re-establish the StaticFields invariant. A previous borrower may have
+	// swapped the slice (e.g. a masker replacing fields) for one with less
+	// capacity — without this, the next consumer's static-path branch on
+	// cap(StaticFields) silently degrades and field counts go missing.
+	if cap(entry.StaticFields) < defaultStaticFieldCap {
+		entry.StaticFields = make([]types.TypedFieldData, defaultStaticFieldCap)
+	} else {
+		entry.StaticFields = entry.StaticFields[:cap(entry.StaticFields)]
+	}
+
 	p.counters.acquire.Add(1)
 	p.counters.active.Add(1)
 
@@ -106,9 +121,21 @@ func (p *EntryPool) ReleaseEntry(entry *types.LogEntry) {
 		return
 	}
 
-	// Clear sensitive data
+	// Clear sensitive data — including StaticFields, the primary field
+	// storage: a pooled entry must not retain the previous line's values
+	// (which may hold pre-masked PII) while it sits in the pool. Only the
+	// slots this use actually wrote ([0, StaticFieldCount)) need clearing —
+	// earlier uses cleared their own — so the message-only hot path
+	// (StaticFieldCount == 0) pays nothing here.
 	for i := 0; i < len(entry.Fields); i++ {
 		entry.Fields[i] = types.TypedFieldData{}
+	}
+	used := entry.StaticFieldCount
+	if used > len(entry.StaticFields) {
+		used = len(entry.StaticFields)
+	}
+	for i := 0; i < used; i++ {
+		entry.StaticFields[i] = types.TypedFieldData{}
 	}
 	for i := 0; i < len(entry.StaticContext); i++ {
 		entry.StaticContext[i] = types.TypedFieldData{}

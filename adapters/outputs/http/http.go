@@ -89,16 +89,19 @@ type HTTPAdapter struct {
 	flushInterval time.Duration
 	client        *http.Client
 	buffer        []*types.LogEntry
-	formatter     types.Formatter
 	ctx           context.Context
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 	adapterType   string // Track adapter type for Name() method
 
+	// Formatter, swappable at runtime. Behind an atomic pointer so a
+	// concurrent SetFormatter never tears the interface value an in-flight
+	// flush is reading.
+	formatter atomic.Pointer[types.Formatter]
+
 	// POOLS: Reusable objects
 	entryPool       sync.Pool // []*types.LogEntry
 	jsonBufPool     sync.Pool // *bytes.Buffer
-	reqPool         sync.Pool // *http.Request (reused carefully)
 	flushInProgress atomic.Bool
 }
 
@@ -174,19 +177,11 @@ func NewHTTPAdapterWithOptions(options *HTTPAdapterOptions) *HTTPAdapter {
 		},
 	}
 
-	adapter.reqPool = sync.Pool{
-		New: func() interface{} {
-			return &http.Request{
-				Header: make(http.Header),
-			}
-		},
-	}
-
 	// Set formatter
 	if options.Formatter != nil {
-		adapter.formatter = options.Formatter
+		adapter.SetFormatter(options.Formatter)
 	} else {
-		adapter.formatter = NewZeroJSONFormatter() // CRITICAL: Must be zero-alloc
+		adapter.SetFormatter(NewZeroJSONFormatter()) // CRITICAL: Must be zero-alloc
 	}
 
 	// Start flusher
@@ -252,10 +247,15 @@ func (a *HTTPAdapter) Flush() error {
 
 		// Pass slice and indices instead of creating sub-slice
 		if err := a.sendBatch(entries, i, end); err != nil {
-			// Re-queue failed entries for retry
+			// Re-queue failed entries for retry. The failed window MUST be
+			// copied out of `entries`: that slice's backing array goes back to
+			// entryPool below, and prepending an alias of it would leave
+			// a.buffer pointing into pooled memory that the next flush
+			// overwrites (silent entry corruption under retry).
 			a.mu.Lock()
-			failed := entries[i:end]
-			a.buffer = append(failed, a.buffer...)
+			requeued := make([]*types.LogEntry, 0, (end-i)+len(a.buffer))
+			requeued = append(requeued, entries[i:end]...)
+			a.buffer = append(requeued, a.buffer...)
 			a.mu.Unlock()
 			batchErr = err
 			break
@@ -295,39 +295,23 @@ func (a *HTTPAdapter) sendBatch(entries []*types.LogEntry, start, end int) error
 
 	buf.WriteString(`,"entries":[`)
 
-	// Format each entry
+	// Snapshot the formatter once per batch (atomic — safe against a
+	// concurrent SetFormatter) and reuse one scratch buffer across entries.
+	formatter := *a.formatter.Load()
+	tempBuf := make([]byte, 0, 1024)
 	for i := start; i < end; i++ {
 		if i > start {
 			buf.WriteByte(',')
 		}
-
-		// THE FORMATTER MUST BE ZERO-ALLOC
-		// It should append to provided buffer and return it
-		// Get a temporary buffer for formatting
-		tempBuf := make([]byte, 0, 1024)
-		formatted := a.formatter.Format(entries[i], tempBuf)
-
-		// Write the formatted data
+		formatted := formatter.Format(entries[i], tempBuf[:0])
 		buf.Write(formatted)
+		tempBuf = formatted // keep any growth for the next entry
 	}
 
 	buf.WriteString("]}")
 
-	// CRITICAL: Get reusable request from pool
-	req := a.reqPool.Get().(*http.Request)
-	// Reset the request
-	*req = http.Request{
-		Method: a.method,
-		URL:    nil,        // Will be set by NewRequest
-		Header: req.Header, // Reuse header map
-		Body:   nil,
-	}
-
-	// Use NewRequest but with pre-allocated struct
-	// This still allocates some internal slices, but we minimize
 	req2, err := http.NewRequestWithContext(a.ctx, a.method, a.url, buf)
 	if err != nil {
-		a.reqPool.Put(req)
 		a.jsonBufPool.Put(buf)
 		return ErrHTTPCreateReq
 	}
@@ -346,9 +330,6 @@ func (a *HTTPAdapter) sendBatch(entries []*types.LogEntry, start, end int) error
 
 	// Send request (this will allocate internally, but we can't control stdlib)
 	resp, err := a.client.Do(req2)
-
-	// Return request to pool BEFORE handling response
-	a.reqPool.Put(req)
 
 	if err != nil {
 		a.jsonBufPool.Put(buf)
@@ -417,11 +398,13 @@ func (a *HTTPAdapter) Name() string {
 	return a.adapterType
 }
 
-// SetFormatter - Sets the formatter for the adapter
+// SetFormatter sets the formatter for the adapter (nil is ignored). Safe to
+// call concurrently with in-flight flushes.
 func (a *HTTPAdapter) SetFormatter(formatter types.Formatter) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.formatter = formatter
+	if formatter == nil {
+		return
+	}
+	a.formatter.Store(&formatter)
 }
 
 // StartHttpFlushTimer runs the background flush loop until the adapter context is cancelled.

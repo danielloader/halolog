@@ -19,7 +19,6 @@ package file
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -130,22 +129,12 @@ func TestFileLock_LivePIDStaleness(t *testing.T) {
 	}
 
 	fl := NewFileLock(base)
-	stale := fl.isLockStale()
 
-	// isLockStale delegates to processExists. On platforms where processExists
-	// works (Unix: signal 0), a live PID is NOT stale. On Windows,
-	// os.Process.Signal(nil) is "not supported", so processExists always
-	// returns false and a live PID is (incorrectly) reported stale. This test
-	// pins the documented per-platform behaviour rather than asserting a single
-	// truth that does not hold cross-platform.
-	if runtime.GOOS == "windows" {
-		if !stale {
-			t.Error("on windows a live PID is currently reported stale (processExists limitation)")
-		}
-	} else {
-		if stale {
-			t.Error("on unix a lock owned by the running process must not be stale")
-		}
+	// A lock owned by the running (live) process must never be judged stale —
+	// on every platform. Unix probes with signal 0, Windows opens a process
+	// handle; both report the current process as existing.
+	if fl.isLockStale() {
+		t.Error("a lock owned by the running process must not be reported stale")
 	}
 }
 
@@ -197,16 +186,16 @@ func TestProcessExists(t *testing.T) {
 		t.Error("a non-existent PID should not be reported as existing")
 	}
 
-	// For the live process, behaviour is platform-dependent: Unix uses signal 0
-	// and returns true; Windows cannot send signal 0 (os returns
-	// "not supported by windows") so processExists returns false. Pin both.
-	self := processExists(os.Getpid())
-	if runtime.GOOS == "windows" {
-		if self {
-			t.Error("windows processExists is expected to return false even for the live process")
-		}
-	} else if !self {
-		t.Error("unix processExists should report the current process as existing")
+	// The live process must be reported as existing on every platform (unix:
+	// signal 0; windows: OpenProcess via os.FindProcess).
+	if !processExists(os.Getpid()) {
+		t.Error("processExists should report the current process as existing")
+	}
+
+	// Non-positive PIDs are rejected outright (pid 0 would target the whole
+	// process group on unix).
+	if processExists(0) || processExists(-1) {
+		t.Error("non-positive PIDs must never be reported as existing")
 	}
 }
 

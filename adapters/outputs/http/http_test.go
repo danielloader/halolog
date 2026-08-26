@@ -100,7 +100,7 @@ func TestNewHTTPAdapter(t *testing.T) {
 				if a.client.Timeout != 30*time.Second {
 					t.Errorf("Timeout: got %v", a.client.Timeout)
 				}
-				if a.formatter == nil {
+				if a.formatter.Load() == nil {
 					t.Error("Formatter: nil")
 				}
 				if a.ctx == nil || a.cancel == nil {
@@ -152,7 +152,11 @@ func TestNewHTTPAdapter(t *testing.T) {
 				Formatter: &mockFormatter{},
 			},
 			validate: func(t *testing.T, a *HTTPAdapter) {
-				if _, ok := a.formatter.(*mockFormatter); !ok {
+				fp := a.formatter.Load()
+				if fp == nil {
+					t.Fatal("Custom formatter not set")
+				}
+				if _, ok := (*fp).(*mockFormatter); !ok {
 					t.Error("Custom formatter not set")
 				}
 			},
@@ -496,14 +500,12 @@ func TestHTTPAdapter_SetFormatter(t *testing.T) {
 	adapter := NewHTTPAdapter("http://test.com")
 	defer func() { _ = adapter.Close() }()
 
-	orig := adapter.formatter
 	newFormatter := NewZeroJSONFormatter()
 	adapter.SetFormatter(newFormatter)
 
-	if adapter.formatter != newFormatter {
+	if fp := adapter.formatter.Load(); fp == nil || *fp != newFormatter {
 		t.Error("Formatter not updated")
 	}
-	_ = orig // Use orig to avoid unused var
 
 	// Concurrent safety
 	var wg sync.WaitGroup
@@ -654,7 +656,7 @@ func TestStreamingHTTPAdapter_SetFormatter(t *testing.T) {
 
 	newFormatter := NewZeroJSONFormatter()
 	a.SetFormatter(newFormatter)
-	if a.formatter != newFormatter {
+	if fp := a.formatter.Load(); fp == nil || *fp != newFormatter {
 		t.Error("Formatter not set")
 	}
 }

@@ -115,18 +115,18 @@ func (fl *FileLock) TryLock() error {
 	return nil
 }
 
-// processExists checks if a process with the given PID exists
+// processExists reports whether a process with the given PID exists. The
+// implementation is per-platform (file_pid_*.go): unix sends signal 0, windows
+// opens a process handle. The previous shared version passed a nil os.Signal,
+// which the os package rejects as "unsupported signal type" on every platform —
+// so live processes were reported dead and their locks stolen as "stale".
+// Non-positive PIDs are never treated as existing (pid 0 would signal the
+// whole process group on unix).
 func processExists(pid int) bool {
-	// Try to find the process
-	process, err := os.FindProcess(pid)
-	if err != nil {
+	if pid <= 0 {
 		return false
 	}
-
-	// Try to send signal 0 (no-op signal)
-	// This may not work on all platforms, but it's the best cross-platform approach
-	err = process.Signal(os.Signal(nil))
-	return err == nil
+	return processExistsPlatform(pid)
 }
 
 // Unlock releases the lock

@@ -60,8 +60,6 @@ var headerAppenders = [precisionCount]headerAppender{
 }
 
 // clampLevel bounds a level to the levelCache index range.
-//
-//go:inline
 func clampLevel(level types.LogLevel) types.LogLevel {
 	if level > 6 {
 		return 6
@@ -82,11 +80,25 @@ type fusedHeader struct {
 // swapped atomically, so readers never see partial writes.
 var fusedHeaders [7]atomic.Pointer[fusedHeader]
 
+// splitUnixNanos floor-divides a unix-nanosecond timestamp into whole seconds
+// and a non-negative fractional remainder. Go's integer division truncates
+// toward zero, which for pre-epoch (negative) timestamps yields a negative
+// remainder — and negative fractional digits render as garbage bytes.
+func splitUnixNanos(unixNanos int64) (sec, frac int64) {
+	sec = unixNanos / int64(time.Second)
+	frac = unixNanos % int64(time.Second)
+	if frac < 0 {
+		sec--
+		frac += int64(time.Second)
+	}
+	return sec, frac
+}
+
 // appendHeaderSecond emits the fused header: a single memcpy on the steady
 // state, rebuilt lazily when the second rolls over.
 func appendHeaderSecond(dst []byte, unixNanos int64, level types.LogLevel) []byte {
 	lvl := clampLevel(level)
-	sec := unixNanos / int64(time.Second)
+	sec, _ := splitUnixNanos(unixNanos)
 	if h := fusedHeaders[lvl].Load(); h != nil && h.sec == sec {
 		return append(dst, h.buf[:h.n]...)
 	}
@@ -136,8 +148,8 @@ func buildTsParts(sec int64) *tsParts {
 // digits/div are captured once at table construction — no per-line branching.
 func subSecondAppender(digits int, div int64) headerAppender {
 	return func(dst []byte, unixNanos int64, level types.LogLevel) []byte {
-		sec := unixNanos / int64(time.Second)
-		frac := (unixNanos % int64(time.Second)) / div
+		sec, nanos := splitUnixNanos(unixNanos)
+		frac := nanos / div
 		p := tsPartsPtr.Load()
 		if p == nil || p.sec != sec {
 			p = buildTsParts(sec)
@@ -153,8 +165,6 @@ func subSecondAppender(digits int, div int64) headerAppender {
 }
 
 // appendFracDigits writes frac as exactly `digits` zero-padded digits.
-//
-//go:inline
 func appendFracDigits(dst []byte, frac int64, digits int) []byte {
 	var scratch [9]byte
 	for i := digits - 1; i >= 0; i-- {
@@ -166,8 +176,6 @@ func appendFracDigits(dst []byte, frac int64, digits int) []byte {
 
 // entryUnixNanos resolves the entry's timestamp to unix nanoseconds, preferring
 // the hot-path TimestampUnix and falling back to the wall-clock Timestamp.
-//
-//go:inline
 func entryUnixNanos(entry *types.LogEntry) int64 {
 	if entry.TimestampUnix != 0 {
 		return entry.TimestampUnix

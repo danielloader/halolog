@@ -19,6 +19,7 @@ package registry
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-gen-ecosystem/halolog/fielddict"
 )
@@ -44,10 +45,12 @@ type SensitiveFieldRegistry struct {
 	defaultMaskInterface        interface{} // Pre-computed interface{} for default mask
 	defaultUnknownMaskInterface interface{} // Pre-computed interface{} for unknown mask
 
-	// Performance metrics
-	hitCount   int64 // O(1) hits
-	missCount  int64 // Misses requiring pattern matching
-	checkCount int64 // Total checks performed
+	// Performance metrics. Atomic: they are bumped on the read (query) path,
+	// which holds at most an RLock — concurrent readers would race on plain
+	// ints (caught by the race detector on the registry's own concurrency test).
+	hitCount   atomic.Int64 // O(1) hits
+	missCount  atomic.Int64 // Misses requiring pattern matching
+	checkCount atomic.Int64 // Total checks performed
 }
 
 // NewSensitiveFieldRegistry creates a new registry with pre-configured sensitive fields
@@ -155,7 +158,7 @@ func (r *SensitiveFieldRegistry) RegisterSensitivePattern(pattern string) {
 // IsSensitive checks if a field is sensitive using O(1) lookup
 // Returns true if field should be masked, false otherwise
 func (r *SensitiveFieldRegistry) IsSensitive(fieldName string) bool {
-	r.checkCount++
+	r.checkCount.Add(1)
 
 	// Normalize input
 	fieldName = strings.ToLower(strings.TrimSpace(fieldName))
@@ -167,48 +170,48 @@ func (r *SensitiveFieldRegistry) IsSensitive(fieldName string) bool {
 	r.mu.RLock()
 	if sensitive, exists := r.fieldNames[fieldName]; exists {
 		r.mu.RUnlock()
-		r.hitCount++
+		r.hitCount.Add(1)
 		return sensitive
 	}
 	r.mu.RUnlock()
 
 	// Fast path: Check common sensitive fields
 	if r.commonSensitive[fieldName] {
-		r.hitCount++
+		r.hitCount.Add(1)
 		return true
 	}
 
 	// Medium path: Pattern matching for registered patterns
 	if r.patternMatch(fieldName) {
-		r.hitCount++
+		r.hitCount.Add(1)
 		return true
 	}
 
 	// Slow path: Heuristic detection for unregistered patterns
 	if r.heuristicMatch(fieldName) {
-		r.missCount++
+		r.missCount.Add(1)
 		return true
 	}
 
-	r.missCount++
+	r.missCount.Add(1)
 	return false
 }
 
 // IsSensitiveByID checks if a field is sensitive by its FieldDict ID
 // This is the fastest possible lookup: O(1) integer key lookup
 func (r *SensitiveFieldRegistry) IsSensitiveByID(fieldID int) bool {
-	r.checkCount++
+	r.checkCount.Add(1)
 
 	// Integer lookup path
 	r.mu.RLock()
 	if sensitive, exists := r.fieldIDs[fieldID]; exists {
 		r.mu.RUnlock()
-		r.hitCount++
+		r.hitCount.Add(1)
 		return sensitive
 	}
 	r.mu.RUnlock()
 
-	r.missCount++
+	r.missCount.Add(1)
 	return false
 }
 
@@ -283,13 +286,19 @@ func (r *SensitiveFieldRegistry) GetPerformanceStats() SensitiveFieldStats {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	hits := r.hitCount.Load()
+	checks := r.checkCount.Load()
+	hitRate := 0.0
+	if checks > 0 {
+		hitRate = float64(hits) / float64(checks) * 100
+	}
 	return SensitiveFieldStats{
 		TotalFields:   len(r.fieldNames),
 		TotalPatterns: len(r.fieldPatterns),
-		HitCount:      r.hitCount,
-		MissCount:     r.missCount,
-		CheckCount:    r.checkCount,
-		HitRate:       float64(r.hitCount) / float64(r.checkCount) * 100,
+		HitCount:      hits,
+		MissCount:     r.missCount.Load(),
+		CheckCount:    checks,
+		HitRate:       hitRate,
 	}
 }
 
@@ -303,9 +312,9 @@ func (r *SensitiveFieldRegistry) Reset() {
 	r.fieldPatterns = make([]string, 0, 20)
 
 	// Reset metrics
-	r.hitCount = 0
-	r.missCount = 0
-	r.checkCount = 0
+	r.hitCount.Store(0)
+	r.missCount.Store(0)
+	r.checkCount.Store(0)
 }
 
 // GetMask returns the mask for a sensitive field
