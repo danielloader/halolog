@@ -122,14 +122,14 @@ field and passing it through a two-call funnel) versus ~14% in actual byte
 encoding — while phuslu appends `,"key":value` bytes immediately per field.
 Three commits closed the gap and then some:
 
-1. **`bf09860`** — console formatter behind an `atomic.Pointer`: the
+1. **`d286fd0`** — console formatter behind an `atomic.Pointer`: the
    per-line `DirectEncoder()` query became a lock-free load (was a mutex
    pair), and formatting moved outside the write lock.
-2. **`f1ba4bd`** — per-type direct append: typed and Line setters for
+2. **`cf3981a`** — per-type direct append: typed and Line setters for
    string/int/int64/float64/bool/error write bytes in one call on the direct
    path; the `FieldValue` box is built only where the capture path needs it.
    Ten-field typed 177→105 ns; twenty-field 328→172 ns.
-3. **`71fd7b5`** — message-only lines take the direct byte path: `Info(msg)`
+3. **`05077fd`** — message-only lines take the direct byte path: `Info(msg)`
    renders fused-header + closer straight into the pooled line buffer, no
    `LogEntry` touched. Bare message 49→24 ns.
 
