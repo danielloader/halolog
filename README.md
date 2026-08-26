@@ -365,40 +365,45 @@ export HALOLOG_FILE_PATH=/var/log/myapp.log
 
 ## 🏁 Performance Benchmarks
 
-Measured on Go 1.27.0, windows/amd64 (Intel Core Ultra 9 285HX), writing full
-JSON lines to a real (no-op sink) adapter via `benchmarks/` — the committed,
-fairness-audited comparison suite. Run it yourself; numbers vary by machine.
+Measured on Go 1.27.0, linux/amd64 (the CI environment; Intel Core Ultra 9
+285HX), 5 runs × 1s, benchstat medians. Every logger writes a full structured
+JSON line (timestamp + level + message + fields) to `io.Discard` via
+`benchmarks/` — the committed, fairness-audited comparison suite that now
+includes phuslu/log, the fastest logger on public Go leaderboards. Run it
+yourself; numbers vary by machine.
 
 ```
-BenchmarkInfo/HaloLog              53.0 ns/op     0 B/op    0 allocs/op
-BenchmarkInfo/Zerolog              68.0 ns/op     0 B/op    0 allocs/op
-BenchmarkInfo/Zap                 119.7 ns/op     0 B/op    0 allocs/op
-BenchmarkOneField/HaloLog_Typed    53.8 ns/op     0 B/op    0 allocs/op
-BenchmarkOneField/Zerolog          99.6 ns/op     0 B/op    0 allocs/op
-BenchmarkTenFields/HaloLog        ~195 ns/op      0 B/op    0 allocs/op
-BenchmarkTenFields/Zerolog        ~176 ns/op      0 B/op    0 allocs/op
-BenchmarkKeyed_TenFields/Keyed    ~181 ns/op      0 B/op    0 allocs/op
-Disabled level                     0.93 ns/op     0 B/op    0 allocs/op
+                       HaloLog   phuslu   zerolog     zap     slog   logrus
+Bare message           46.7 ns   61.2 ns   84.5 ns  142.7 ns  231.6   927 ns
+One field              44.8 ns   66.3 ns   95.2 ns  177.2 ns  304.1  1396 ns
+Ten fields            139.4 ns  109.2 ns  156.3 ns  396.8 ns  889.4  3713 ns
+Twenty fields         236.7 ns  177.2 ns  214.7 ns  351.2 ns      —       —
+Disabled level        0.82 ns         —        —        —       —        —
+HaloLog allocations   0 B/op, 0 allocs/op in every scenario
 ```
 
-Honest summary: HaloLog leads at zero and one field and is allocation-free at
-every field count; at ten fields zerolog currently edges ahead (~10%) — the
-pre-declared-key API narrows that gap. Every hot path is guarded at
-**0 allocs/op** by `go test ./core -run TestZeroAlloc`.
+Honest summary: **HaloLog is the fastest logger in this field for typical log
+lines (zero to a few fields) on both linux/amd64 and windows/amd64** — ~25–30%
+ahead of phuslu and ~45–50% ahead of zerolog — and allocation-free at every
+field count. On very field-heavy lines (ten or more), phuslu leads and zerolog
+is competitive; HaloLog beats zerolog at ten fields and trails it at twenty.
+Every hot path is guarded at **0 allocs/op** by
+`go test ./core -run TestZeroAlloc`.
 
 ## 📊 Comparison with Other Loggers
 
-| Feature            | HaloLogger              | Zap             | Logrus            | Zerolog           |
-| ------------------ | ----------------------- | --------------- | ----------------- | ----------------- |
-| **Static string**  | **53 ns · 0 B/op**      | 120 ns · 0 B/op | 1269 ns · 797 B   | 68 ns · 0 B/op    |
-| **Ten fields**     | 195 ns · **0 B/op**     | 682 ns · 706 B  | 6459 ns · 3470 B  | **176 ns** · 0 B  |
-| **Disabled level** | **0.9 ns**              | ~2 ns           | ~15 ns            | ~1 ns             |
-| **PII Masking**    | **✅ Built-in**         | ❌ External     | ❌ External       | ❌ External       |
-| **File Rotation**  | **✅ Built-in**         | ❌ External     | ❌ External       | ❌ External       |
-| **Sampling**       | **✅ Adaptive**         | ✅ Basic        | ❌ Manual         | ✅ Basic          |
-| **Alerting**       | **✅ Integrated**       | ❌ External     | ❌ External       | ❌ External       |
-| **Encryption**     | **✅ Field-level**      | ❌ External     | ❌ External       | ❌ External       |
-| **Configuration**  | **✅ Multi-format**     | ❌ Code-only    | ❌ Code-only      | ❌ Code-only      |
+| Feature            | HaloLogger              | Zerolog           | phuslu/log        | Zap             | Logrus            |
+| ------------------ | ----------------------- | ----------------- | ----------------- | --------------- | ----------------- |
+| **Bare message**   | **46.7 ns · 0 B**       | 84.5 ns · 0 B     | 61.2 ns · 0 B     | 142.7 ns · 0 B  | 927 ns · 797 B    |
+| **One field**      | **44.8 ns · 0 B**       | 95.2 ns · 0 B     | 66.3 ns · 0 B     | 177.2 ns · 64 B | 1396 ns · 1.5 KiB |
+| **Ten fields**     | 139.4 ns · **0 B**      | 156.3 ns · 0 B    | **109.2 ns** · 0 B| 396.8 ns · 706 B| 3713 ns · 3.4 KiB |
+| **Disabled level** | **0.8 ns**              | ~1 ns             | ~1 ns             | ~2 ns           | ~15 ns            |
+| **PII Masking**    | **✅ Built-in**         | ❌ External       | ❌ External       | ❌ External     | ❌ External       |
+| **File Rotation**  | **✅ Built-in**         | ❌ External       | ✅ Built-in       | ❌ External     | ❌ External       |
+| **Sampling**       | **✅ Adaptive**         | ✅ Basic          | ❌ Manual         | ✅ Basic        | ❌ Manual         |
+| **Alerting**       | **✅ Integrated**       | ❌ External       | ❌ External       | ❌ External     | ❌ External       |
+| **Encryption**     | **✅ Field-level**      | ❌ External       | ❌ External       | ❌ External     | ❌ External       |
+| **Configuration**  | **✅ Multi-format**     | ❌ Code-only      | ❌ Code-only      | ❌ Code-only    | ❌ Code-only      |
 
 ### Fatal and Panic semantics
 
