@@ -158,14 +158,24 @@ func appendField(dst []byte, field *types.TypedFieldData) []byte {
 
 // appendKeyPrefix emits the `,"key":` member prefix. A pre-declared FieldKey
 // carries its own pre-escaped fragment and is emitted with a single copy (no
-// escaping). A plain string key is escaped inline: for the short keys typical of
-// logging this is cheaper than a per-field map lookup would be.
+// escaping). A plain string key is scanned and copied in ONE fused pass — for
+// the short keys typical of logging this beats the scan-then-bulk-copy shape
+// (profiled at ~25% of a ten-field line). A hostile byte bails to the exact
+// escaping path from the key's start, so output is byte-identical either way.
 func appendKeyPrefix(dst []byte, kd *types.FieldKey, key string) []byte {
 	if kd != nil && len(kd.JSONFragment) > 0 {
 		return append(dst, kd.JSONFragment...)
 	}
 	dst = append(dst, ',', '"')
-	dst = appendJSONString(dst, key)
+	mark := len(dst)
+	for i := 0; i < len(key); i++ {
+		c := key[i]
+		if jsonNoEscape[c] {
+			dst = append(dst, c)
+			continue
+		}
+		return append(appendJSONEscaped(dst[:mark], key, i), '"', ':')
+	}
 	return append(dst, '"', ':')
 }
 
