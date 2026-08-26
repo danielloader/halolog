@@ -1,6 +1,3 @@
-//go:build amd64 || arm64
-// +build amd64 arm64
-
 // Copyright 2025 Admilson B. F. Cossa
 //
 // Licensed under the Apache License, Version 2.0 (the "License");

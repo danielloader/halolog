@@ -1,6 +1,3 @@
-//go:build amd64 || arm64
-// +build amd64 arm64
-
 // Copyright 2025 Admilson B. F. Cossa
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -179,8 +176,6 @@ func (f *Formatter) Format(entry *types.LogEntry, dst []byte) []byte {
 }
 
 // appendCaller - Extracted to keep Format small (I-Cache friendly)
-//
-//go:inline
 func (f *Formatter) appendCaller(dst []byte, file string, line int) []byte {
 	dst = append(dst, " ["...)
 

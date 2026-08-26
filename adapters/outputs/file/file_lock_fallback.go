@@ -17,7 +17,7 @@
 // Package adapters provides output adapters
 // Author: Admilson B. F. Cossa
 
-package file_lock_fallback
+package file
 
 import (
 	"fmt"

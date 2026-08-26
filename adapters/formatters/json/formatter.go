@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build amd64 || arm64
-
 // Package json provides JSON formatting for log entries
 // Author: Admilson B. F. Cossa
 package json
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/go-gen-ecosystem/halolog/types"
@@ -182,7 +181,7 @@ func appendValue(dst []byte, v *types.FieldValue, legacy interface{}) []byte {
 	case types.KindInt, types.KindInt64:
 		return appendInt(dst, v.Int64)
 	case types.KindFloat64:
-		return strconv.AppendFloat(dst, v.Float64, 'g', -1, 64)
+		return appendFloat(dst, v.Float64, 64)
 	case types.KindBool:
 		if v.Int64 != 0 {
 			return append(dst, "true"...)
@@ -240,9 +239,9 @@ func appendAny(dst []byte, v interface{}) []byte {
 	case uint64:
 		return appendUint(dst, x)
 	case float32:
-		return strconv.AppendFloat(dst, float64(x), 'g', -1, 32)
+		return appendFloat(dst, float64(x), 32)
 	case float64:
-		return strconv.AppendFloat(dst, x, 'g', -1, 64)
+		return appendFloat(dst, x, 64)
 	case error:
 		dst = append(dst, '"')
 		dst = appendJSONString(dst, x.Error())
@@ -258,8 +257,6 @@ func appendAny(dst []byte, v interface{}) []byte {
 // quotes), escaping only where required. The common case — a string with no
 // control characters, quotes or backslashes — is a single table-driven scan
 // followed by one bulk append, and allocates nothing.
-//
-//go:inline
 func appendJSONString(dst []byte, s string) []byte {
 	for i := 0; i < len(s); i++ {
 		if !jsonNoEscape[s[i]] {
@@ -271,10 +268,12 @@ func appendJSONString(dst []byte, s string) []byte {
 
 //go:noinline
 func appendJSONEscaped(dst []byte, s string, start int) []byte {
-	// Pre-allocate with extra capacity to avoid reallocations
+	// Pre-allocate for the worst case: a control character expands to \u00XX
+	// (6 bytes per input byte). Under-sizing here is only a perf hazard —
+	// append still grows — but sizing correctly avoids a second copy.
 	remaining := s[start:]
-	if cap(dst)-len(dst) < len(remaining)*3 {
-		newDst := make([]byte, len(dst), len(dst)+len(remaining)*3)
+	if cap(dst)-len(dst) < len(remaining)*6 {
+		newDst := make([]byte, len(dst), len(dst)+len(remaining)*6)
 		copy(newDst, dst)
 		dst = newDst
 	}
@@ -313,7 +312,6 @@ func hexDigit(n byte) byte {
 	return 'a' + n - 10
 }
 
-//go:inline
 func appendInt(dst []byte, i int64) []byte {
 	if i >= 0 && i < int64(smallIntCacheSize) {
 		return append(dst, smallInts[i]...)
@@ -321,7 +319,21 @@ func appendInt(dst []byte, i int64) []byte {
 	return strconv.AppendInt(dst, i, 10)
 }
 
-//go:inline
+// appendFloat renders a float as a JSON value. Non-finite values (NaN, ±Inf)
+// have no JSON number representation — strconv would emit bare NaN/+Inf and
+// corrupt the line — so they are emitted as quoted strings, matching zerolog.
+func appendFloat(dst []byte, f float64, bits int) []byte {
+	switch {
+	case math.IsNaN(f):
+		return append(dst, `"NaN"`...)
+	case math.IsInf(f, 1):
+		return append(dst, `"+Inf"`...)
+	case math.IsInf(f, -1):
+		return append(dst, `"-Inf"`...)
+	}
+	return strconv.AppendFloat(dst, f, 'g', -1, bits)
+}
+
 func appendUint(dst []byte, u uint64) []byte {
 	if u < uint64(smallIntCacheSize) {
 		return append(dst, smallInts[u]...)

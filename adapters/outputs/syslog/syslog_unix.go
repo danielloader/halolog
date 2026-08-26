@@ -24,7 +24,7 @@ import (
 	"log/syslog"
 	"sync"
 
-	"github.com/go-gen-ecosystem/halolog/core"
+	"github.com/go-gen-ecosystem/halolog/adapters/formatters/text"
 	"github.com/go-gen-ecosystem/halolog/types"
 	"github.com/go-gen-ecosystem/halolog/utils"
 )
@@ -43,7 +43,7 @@ var (
 type SyslogAdapter struct {
 	mu        sync.RWMutex
 	writer    *syslog.Writer
-	formatter Formatter
+	formatter types.Formatter
 	facility  syslog.Priority
 	tag       string
 	lastError error // Store initialization errors
@@ -57,24 +57,28 @@ type SyslogAdapterOptions struct {
 	Address   string // "", "host:port"
 	Facility  syslog.Priority
 	Tag       string
-	Formatter Formatter
+	Formatter types.Formatter
 }
 
 // NewSyslogAdapter creates a new syslog adapter
 func NewSyslogAdapter(tag string) *SyslogAdapter {
 	return NewSyslogAdapterWithOptions(&SyslogAdapterOptions{
-		Network:   "",
-		Address:   "",
-		Facility:  syslog.LOG_LOCAL0,
-		Tag:       tag,
-		Formatter: NewTextFormatter(),
+		Network:  "",
+		Address:  "",
+		Facility: syslog.LOG_LOCAL0,
+		Tag:      tag,
 	})
 }
 
-// NewSyslogAdapterWithOptions creates a new syslog adapter with custom options
+// NewSyslogAdapterWithOptions creates a new syslog adapter with custom options.
+// A nil Formatter defaults to the plain text formatter.
 func NewSyslogAdapterWithOptions(options *SyslogAdapterOptions) *SyslogAdapter {
+	formatter := options.Formatter
+	if formatter == nil {
+		formatter = text.NewTextFormatter()
+	}
 	adapter := &SyslogAdapter{
-		formatter: options.Formatter,
+		formatter: formatter,
 		facility:  options.Facility,
 		tag:       options.Tag,
 	}
@@ -128,17 +132,15 @@ func (a *SyslogAdapter) Write(entry *types.LogEntry) error {
 	// Convert []byte to string for syslog writer
 	formattedStr := string(formatted)
 	switch entry.Level {
-	case DebugLevel:
+	case types.TraceLevel, types.DebugLevel:
 		return a.writer.Debug(formattedStr)
-	case InfoLevel:
+	case types.InfoLevel:
 		return a.writer.Info(formattedStr)
-	case WarnLevel:
+	case types.WarnLevel:
 		return a.writer.Warning(formattedStr)
-	case ErrorLevel:
+	case types.ErrorLevel:
 		return a.writer.Err(formattedStr)
-	case FatalLevel:
-		return a.writer.Crit(formattedStr)
-	case PanicLevel:
+	case types.FatalLevel, types.PanicLevel:
 		return a.writer.Crit(formattedStr)
 	default:
 		return a.writer.Info(formattedStr)
@@ -164,8 +166,11 @@ func (a *SyslogAdapter) Close() error {
 	return nil
 }
 
-// SetFormatter sets the formatter for this adapter
-func (a *SyslogAdapter) SetFormatter(formatter core.Formatter) {
+// SetFormatter sets the formatter for this adapter (nil is ignored).
+func (a *SyslogAdapter) SetFormatter(formatter types.Formatter) {
+	if formatter == nil {
+		return
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.formatter = formatter
