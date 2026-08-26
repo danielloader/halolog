@@ -15,7 +15,7 @@
 // Package types provides core type definitions
 // Author: Admilson B. F. Cossa
 
-package types
+package alerts
 
 import (
 	"net/http"
@@ -23,13 +23,15 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/go-gen-ecosystem/halolog/types"
 )
 
 func TestNewSlackSender(t *testing.T) {
 	config := SlackAlertConfig{
 		WebhookURL: "https://hooks.slack.example/services/TEST/TEST/TEST",
 		Channel:    "#alerts",
-		Threshold:  ErrorLevel,
+		Threshold:  types.ErrorLevel,
 	}
 
 	sender := NewSlackSender(config)
@@ -117,7 +119,7 @@ func TestSlackSender_RateLimit(t *testing.T) {
 func TestNewPagerDutySender(t *testing.T) {
 	config := PagerDutyAlertConfig{
 		IntegrationKey: "test-key",
-		Threshold:      ErrorLevel,
+		Threshold:      types.ErrorLevel,
 	}
 
 	sender := NewPagerDutySender(config)
@@ -132,7 +134,7 @@ func TestNewPagerDutySender(t *testing.T) {
 func TestNewWebhookSender(t *testing.T) {
 	config := WebhookAlertConfig{
 		URL:       "https://example.com/webhook",
-		Threshold: ErrorLevel,
+		Threshold: types.ErrorLevel,
 	}
 
 	sender := NewWebhookSender(config)

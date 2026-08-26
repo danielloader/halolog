@@ -15,7 +15,7 @@
 // Package types provides core type definitions
 // Author: Admilson B. F. Cossa
 
-package types
+package alerts
 
 import (
 	"bytes"
@@ -24,6 +24,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/go-gen-ecosystem/halolog/types"
 )
 
 // AlertType defines the type of alert integration
@@ -43,17 +45,17 @@ type SlackAlertConfig struct {
 	Channel    string            `json:"channel,omitempty" yaml:"channel,omitempty"`
 	Username   string            `json:"username,omitempty" yaml:"username,omitempty"`
 	IconEmoji  string            `json:"icon_emoji,omitempty" yaml:"icon_emoji,omitempty"`
-	Threshold  LogLevel          `json:"threshold" yaml:"threshold"`
+	Threshold  types.LogLevel    `json:"threshold" yaml:"threshold"`
 	RateLimit  time.Duration     `json:"rate_limit" yaml:"rate_limit"`
 	Headers    map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 }
 
 // PagerDutyAlertConfig configures PagerDuty alerts
 type PagerDutyAlertConfig struct {
-	IntegrationKey string        `json:"integration_key" yaml:"integration_key"`
-	Severity       string        `json:"severity" yaml:"severity"` // critical, error, warning, info
-	Threshold      LogLevel      `json:"threshold" yaml:"threshold"`
-	RateLimit      time.Duration `json:"rate_limit" yaml:"rate_limit"`
+	IntegrationKey string         `json:"integration_key" yaml:"integration_key"`
+	Severity       string         `json:"severity" yaml:"severity"` // critical, error, warning, info
+	Threshold      types.LogLevel `json:"threshold" yaml:"threshold"`
+	RateLimit      time.Duration  `json:"rate_limit" yaml:"rate_limit"`
 }
 
 // WebhookAlertConfig configures generic webhook alerts
@@ -61,7 +63,7 @@ type WebhookAlertConfig struct {
 	URL         string            `json:"url" yaml:"url"`
 	Method      string            `json:"method" yaml:"method"` // POST, PUT
 	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
-	Threshold   LogLevel          `json:"threshold" yaml:"threshold"`
+	Threshold   types.LogLevel    `json:"threshold" yaml:"threshold"`
 	RateLimit   time.Duration     `json:"rate_limit" yaml:"rate_limit"`
 	Timeout     time.Duration     `json:"timeout" yaml:"timeout"`
 	ContentType string            `json:"content_type" yaml:"content_type"`
@@ -69,14 +71,14 @@ type WebhookAlertConfig struct {
 
 // EmailAlertConfig configures email alerts
 type EmailAlertConfig struct {
-	SMTPHost  string        `json:"smtp_host" yaml:"smtp_host"`
-	SMTPPort  int           `json:"smtp_port" yaml:"smtp_port"`
-	From      string        `json:"from" yaml:"from"`
-	To        []string      `json:"to" yaml:"to"`
-	Username  string        `json:"username,omitempty" yaml:"username,omitempty"`
-	Password  string        `json:"password,omitempty" yaml:"password,omitempty"`
-	Threshold LogLevel      `json:"threshold" yaml:"threshold"`
-	RateLimit time.Duration `json:"rate_limit" yaml:"rate_limit"`
+	SMTPHost  string         `json:"smtp_host" yaml:"smtp_host"`
+	SMTPPort  int            `json:"smtp_port" yaml:"smtp_port"`
+	From      string         `json:"from" yaml:"from"`
+	To        []string       `json:"to" yaml:"to"`
+	Username  string         `json:"username,omitempty" yaml:"username,omitempty"`
+	Password  string         `json:"password,omitempty" yaml:"password,omitempty"`
+	Threshold types.LogLevel `json:"threshold" yaml:"threshold"`
+	RateLimit time.Duration  `json:"rate_limit" yaml:"rate_limit"`
 }
 
 // AlertPayload is the standard payload sent to webhooks
