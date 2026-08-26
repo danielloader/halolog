@@ -22,6 +22,7 @@ import (
 	"os"
 	"sync/atomic"
 
+	jsonfmt "github.com/go-gen-ecosystem/halolog/adapters/formatters/json"
 	"github.com/go-gen-ecosystem/halolog/adapters/outputs/discard"
 	"github.com/go-gen-ecosystem/halolog/cache"
 	"github.com/go-gen-ecosystem/halolog/types"
@@ -196,6 +197,37 @@ func (l *Logger) setupFunctionPointers(hot *hotState, level types.LogLevel) {
 		hot.errorFunc = noopLog
 		if level <= types.ErrorLevel {
 			hot.errorFunc = l.errorSampled
+		}
+		hot.fatalFunc = l.realFatal
+		hot.panicFunc = l.realPanic
+		return
+	}
+
+	// Direct-append eligibility (single raw-capable JSON adapter, no masking,
+	// no sampling — see NewLogger): message-only lines render straight to
+	// bytes through the same fused-header path the typed builders use, so
+	// l.Info(msg) never touches a LogEntry at all. Fatal/Panic keep the
+	// generic funcs for their flush/exit/panic semantics.
+	if l.rawWriter != nil && l.directAdapter != nil {
+		hot.traceFunc = noopLog
+		if level <= types.TraceLevel {
+			hot.traceFunc = l.traceDirect
+		}
+		hot.debugFunc = noopLog
+		if level <= types.DebugLevel {
+			hot.debugFunc = l.debugDirect
+		}
+		hot.infoFunc = noopLog
+		if level <= types.InfoLevel {
+			hot.infoFunc = l.infoDirect
+		}
+		hot.warnFunc = noopLog
+		if level <= types.WarnLevel {
+			hot.warnFunc = l.warnDirect
+		}
+		hot.errorFunc = noopLog
+		if level <= types.ErrorLevel {
+			hot.errorFunc = l.errorDirect
 		}
 		hot.fatalFunc = l.realFatal
 		hot.panicFunc = l.realPanic
@@ -503,6 +535,42 @@ func (l *Logger) exit(code int) {
 	}
 	os.Exit(code)
 }
+
+// ===== DIRECT MESSAGE-ONLY FUNCTIONS (single raw-capable JSON adapter) =====
+
+// logDirect renders a message-only line straight to bytes: fused header +
+// closer into the pooled line buffer, one WriteRaw. No LogEntry is built.
+// The encoder is re-queried per line (a lock-free atomic load on the console
+// adapter), so a runtime formatter swap to a non-JSON formatter safely falls
+// back to the generic capture path.
+func (l *Logger) logDirect(level types.LogLevel, msg string) {
+	enc, _ := l.directAdapter.DirectEncoder().(*jsonfmt.Formatter)
+	if enc == nil {
+		var entry types.LogEntry
+		entry.Level = level
+		entry.Message = msg
+		entry.Component = l.component
+		entry.TimestampUnix = l.clock.GetNsecValue()
+		entry.StaticFieldCount = 0
+		l.writeEntry(&entry)
+		return
+	}
+	s := globalPerPPool.get()
+	line := enc.AppendHeader(s.lineBuf[:0], l.clock.GetNsecValue(), level, msg)
+	line = jsonfmt.AppendCloser(line)
+	s.lineBuf = line // retain growth for reuse
+	_ = l.rawWriter.WriteRaw(line)
+	if l.metrics != nil {
+		l.metrics.counts[level].Add(1)
+	}
+	globalPerPPool.put(s)
+}
+
+func (l *Logger) traceDirect(_ *Logger, msg string) { l.logDirect(types.TraceLevel, msg) }
+func (l *Logger) debugDirect(_ *Logger, msg string) { l.logDirect(types.DebugLevel, msg) }
+func (l *Logger) infoDirect(_ *Logger, msg string)  { l.logDirect(types.InfoLevel, msg) }
+func (l *Logger) warnDirect(_ *Logger, msg string)  { l.logDirect(types.WarnLevel, msg) }
+func (l *Logger) errorDirect(_ *Logger, msg string) { l.logDirect(types.ErrorLevel, msg) }
 
 // ===== SAMPLED LEVEL FUNCTIONS (selected when a sampler is configured) =====
 

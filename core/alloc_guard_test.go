@@ -11,6 +11,7 @@ package core
 import (
 	"testing"
 
+	jsonfmt "github.com/go-gen-ecosystem/halolog/adapters/formatters/json"
 	"github.com/go-gen-ecosystem/halolog/adapters/outputs/discard"
 	"github.com/go-gen-ecosystem/halolog/types"
 )
@@ -57,6 +58,46 @@ func TestZeroAlloc_WithFieldsRealAdapter(t *testing.T) {
 		logger.WithField("k1", "v1").WithField("k2", 42).WithField("k3", "v3").Info("hot path")
 	}); allocs != 0 {
 		t.Fatalf("multi-field WithField (real adapter) must allocate 0 times/op, got %.2f", allocs)
+	}
+}
+
+// rawNull is a raw-capable, JSON-direct adapter that counts WriteRaw calls
+// without copying the line, so the alloc guard measures the logger alone.
+type rawNull struct {
+	enc      types.DirectFieldEncoder
+	rawCalls int
+}
+
+func (r *rawNull) Name() string                            { return "rawnull" }
+func (r *rawNull) Write(*types.LogEntry) error             { return nil }
+func (r *rawNull) WriteZero(*types.LogEntry) error         { return nil }
+func (r *rawNull) Flush() error                            { return nil }
+func (r *rawNull) Close() error                            { return nil }
+func (r *rawNull) SetFormatter(types.Formatter)            {}
+func (r *rawNull) Health() error                           { return nil }
+func (r *rawNull) WriteRaw([]byte) error                   { r.rawCalls++; return nil }
+func (r *rawNull) DirectEncoder() types.DirectFieldEncoder { return r.enc }
+
+// TestZeroAlloc_MessageDirect guards the message-only direct fast path: with a
+// single raw-capable JSON adapter, l.Info(msg) renders header+closer straight
+// to bytes through the pooled line buffer — no LogEntry, no allocations.
+func TestZeroAlloc_MessageDirect(t *testing.T) {
+	sink := &rawNull{enc: jsonfmt.NewJsonFormatter()}
+	logger := NewLogger(Config{
+		Component: "guard",
+		Level:     types.InfoLevel,
+		Adapters:  []types.Adapter{sink},
+	})
+	if logger.rawWriter == nil {
+		t.Fatal("expected direct-append eligibility")
+	}
+	if allocs := testing.AllocsPerRun(1000, func() {
+		logger.Info("hot path message")
+	}); allocs != 0 {
+		t.Fatalf("message-direct path must allocate 0 times/op, got %.2f", allocs)
+	}
+	if sink.rawCalls == 0 {
+		t.Fatal("direct message path did not engage WriteRaw")
 	}
 }
 
