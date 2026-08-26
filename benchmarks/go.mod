@@ -6,6 +6,7 @@ replace github.com/go-gen-ecosystem/halolog => ../
 
 require (
 	github.com/go-gen-ecosystem/halolog v0.0.0-00010101000000-000000000000
+	github.com/phuslu/log v1.0.128
 	github.com/rs/zerolog v1.34.0
 	github.com/sirupsen/logrus v1.9.4
 	go.uber.org/zap v1.27.0

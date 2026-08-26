@@ -12,6 +12,7 @@ import (
 	"github.com/go-gen-ecosystem/halolog/adapters/outputs/discard"
 	"github.com/go-gen-ecosystem/halolog/core"
 	"github.com/go-gen-ecosystem/halolog/types"
+	phuslu "github.com/phuslu/log"
 	"github.com/rs/zerolog"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/zap"
@@ -45,6 +46,15 @@ func newHaloDisabledOutput() *core.Logger {
 
 func newZerolog() zerolog.Logger {
 	return zerolog.New(io.Discard).With().Timestamp().Logger()
+}
+
+// newPhuslu configures phuslu/log the same way: JSON (its native format) with
+// its default cached timestamp, to io.Discard.
+func newPhuslu() *phuslu.Logger {
+	return &phuslu.Logger{
+		Level:  phuslu.InfoLevel,
+		Writer: phuslu.IOWriter{Writer: io.Discard},
+	}
 }
 
 func newZap() *zap.Logger {
@@ -111,6 +121,14 @@ func BenchmarkInfo(b *testing.B) {
 			l.Info(msg)
 		}
 	})
+	b.Run("Phuslu", func(b *testing.B) {
+		l := newPhuslu()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			l.Info().Msg(msg)
+		}
+	})
 	b.Run("HaloLog_DisabledOutput", func(b *testing.B) {
 		l := newHaloDisabledOutput()
 		b.ReportAllocs()
@@ -169,6 +187,14 @@ func BenchmarkOneField(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			l.WithField("key", "value").Info(msg)
+		}
+	})
+	b.Run("Phuslu", func(b *testing.B) {
+		l := newPhuslu()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			l.Info().Str("key", "value").Msg(msg)
 		}
 	})
 }
@@ -239,6 +265,17 @@ func BenchmarkTenFields(b *testing.B) {
 			}).Info(msg)
 		}
 	})
+	b.Run("Phuslu", func(b *testing.B) {
+		l := newPhuslu()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			l.Info().
+				Int("k1", 1).Int("k2", 2).Int("k3", 3).Int("k4", 4).Int("k5", 5).
+				Int("k6", 6).Int("k7", 7).Int("k8", 8).Int("k9", 9).Int("k10", 10).
+				Msg(msg)
+		}
+	})
 }
 
 // BenchmarkTwentyFields — twenty integer fields (a heavy-field stress case).
@@ -289,6 +326,18 @@ func BenchmarkTwentyFields(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			l.Info(msg, fs...)
+		}
+	})
+	b.Run("Phuslu", func(b *testing.B) {
+		l := newPhuslu()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			e := l.Info()
+			for j := 0; j < 20; j++ {
+				e = e.Int("k", j)
+			}
+			e.Msg(msg)
 		}
 	})
 }
