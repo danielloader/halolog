@@ -63,6 +63,32 @@ All notable changes to HaloLog are documented here. This project adheres to
   errors with `errors.Join` instead of stopping at the first; ~80 inert
   `//go:inline` pseudo-directives (not a real compiler directive) removed.
 
+### Added (features)
+- **Contextual (child) loggers** — `logger.With().Str(...).WithString(...).Logger()`
+  binds fields once: encoded to final bytes at derivation, emitted as ONE
+  memcpy per line on the direct path, prepended as structured (maskable) data
+  on the capture path, byte-identical either way and 0 allocs/op per line
+  (guarded). Chains, inherits level at derivation, capped at 32 bound fields.
+  Measured on the request-logging shape (5 bound + 1 call-site field):
+  37 ns/op vs phuslu 55, zerolog 91, zap 180 (which also allocates). Fixed in
+  passing: on direct-eligible loggers, `Typed().Fatal/Panic` wrote the line
+  but skipped the flush-exit/panic contract — terminal semantics now sit on
+  the shared dispatch tail (regression-tested).
+- **Backpressure sampling** — `sampling.NewBackpressureSampler(ring, low, high)`
+  reads the async ring's live occupancy (new `Occupancy()` on the ring
+  adapter) and sheds Trace–Warn lines proportionally to pipeline fill:
+  nothing below the low watermark, linear down to keep-1-in-16 at the high
+  watermark, Error+ always passes. O(1), allocation-free, deterministic
+  (counter, not RNG) so drops spread evenly.
+- **OpenTelemetry trace correlation** (`otelbridge`, separate Go module — the
+  core logger gains no OTel dependency): `otelbridge.Bind(ctx, logger)`
+  derives a child carrying `trace_id`/`span_id` hex-encoded once; each
+  correlated line is 0 allocs/op (guarded).
+- **Removed the dead `CoreLogger` god-interface** from `types` — 60 methods
+  promising an unimplemented API (Colorize, Tracef, ToFile, …) with zero
+  references; the real surface is the concrete `core.Logger` plus the small
+  purpose-built interfaces.
+
 ### Changed (performance)
 - **Per-type direct append — the FieldValue funnel is gone from the fast
   path.** Profiling showed 72% of a ten-field line spent building and

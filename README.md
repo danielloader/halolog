@@ -92,6 +92,32 @@ logger.Typed().Str(userID, "alice").Str(action, "login").Info("login")
 Rule of thumb: reach for `halolog.Key(...)` in tight, high-frequency logging
 loops; use string keys everywhere else. Neither allocates on the hot path.
 
+### Contextual (child) loggers — request-scoped fields for one memcpy
+
+Bind fields once, log them on every line. The bound context is encoded to its
+final bytes a single time, at `Logger()` — after that, each line emits the
+whole context as **one memcpy**, not a per-line re-encode. This is the shape
+of real service logging (per-request/per-tenant loggers), and the measured
+scenario where HaloLog leads the field outright (37 ns/op with five bound
+fields + a call-site field; zerolog 91, zap 180, phuslu 55 on the same host).
+
+```go
+reqLog := logger.With().
+    Str(keyTenant, "acme").
+    WithString("region", "eu-west-1").
+    WithInt("shard", 7).
+    Logger()
+
+reqLog.Info("accepted")                            // context rides along
+reqLog.Typed().WithInt("status", 200).Info("done") // …and composes with fields
+child := reqLog.With().WithString("op", "billing").Logger() // chains
+```
+
+Bound fields stay visible to PII masking (they travel as structured data on
+the masked path — binding is never a masking bypass), appear before per-line
+fields, are capped at 32 per logger, and every line remains 0 allocs/op
+(guarded). The child inherits the parent's level at derivation.
+
 ### Level-first lines (cheapest disabled logging)
 
 `InfoLine`/`DebugLine`/`WarnLine`/`ErrorLine` fix the level when the line opens,
@@ -120,6 +146,22 @@ slog.Info("handled", "status", 200, slog.Group("req", "id", "abc"))
 
 The bridge passes the standard library's `testing/slogtest` conformance suite
 (groups are dot-joined; HaloLog stamps its own clock time on every line).
+
+### OpenTelemetry trace correlation
+
+The `otelbridge` module (separate `go.mod` — the core logger stays free of
+OpenTelemetry dependencies) derives a child logger carrying `trace_id` and
+`span_id`, hex-encoded **once** at bind time; every line in the request then
+pays a single memcpy for its correlation fields, at 0 allocs/op:
+
+```go
+import "github.com/go-gen-ecosystem/halolog/otelbridge"
+
+func handle(w http.ResponseWriter, r *http.Request) {
+    log := otelbridge.Bind(r.Context(), baseLogger) // no span? returns baseLogger
+    log.Info("handling")  // …,"trace_id":"4bf9…","span_id":"00f0…"
+}
+```
 
 ### Timestamp precision
 
@@ -257,6 +299,25 @@ then offered to `ShouldSample` before it is written. Fatal and Panic lines are
 **never** sampled away — the last line before a crash always lands. Configuring
 a sampler keeps the capture path (it disables the direct-append fast path,
 since each line must be inspected).
+
+### Backpressure sampling (load-shedding with a control loop)
+
+Classic samplers drop a fixed fraction whether or not the pipeline is keeping
+up. `BackpressureSampler` closes the loop instead: it reads the async ring's
+**live occupancy** and sheds Trace–Warn lines in proportion to how full the
+pipeline actually is — nothing below the low watermark, linearly down to
+keep-1-in-16 at the high watermark — while **Error and above always pass**
+(the lines an operator needs most are the ones an overloaded system emits).
+Decisions are O(1), allocation-free, and deterministic, so drops spread
+evenly instead of clustering.
+
+```go
+ring, _ := asyncring.New(asyncring.Options{Writer: f, Formatter: jsonfmt.NewJsonFormatter(), Capacity: 4096})
+logger := core.New().
+    Adapter(ring).
+    Sampling(sampling.NewBackpressureSampler(ring, 0.5, 0.9)). // watermarks: fill fractions
+    MustBuild()
+```
 
 ```go
 logger := core.New().
