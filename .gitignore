@@ -36,3 +36,5 @@ Thumbs.db
 # Local-only staging for docs pending verification -- never tracked, never published
 TEMPDOCS/
 
+*.backup
+

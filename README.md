@@ -2,14 +2,14 @@
 
 [![Go Version](https://img.shields.io/badge/go-1.24+-blue.svg)](https://golang.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-[![Performance](https://img.shields.io/badge/bare%20message-23.6%20ns%2Fop-red.svg)](benchmarks/comprehensive_comparison.md)
+[![Performance](https://img.shields.io/badge/bare%20message-23.9%20ns%2Fop-red.svg)](benchmarks/comprehensive_comparison.md)
 [![Zero Allocation](<https://img.shields.io/badge/allocation-zero%20(0%20B%2Fop)-brightgreen.svg>)](docs/PERFORMANCE.md)
 
 A high-performance logging framework for Go with zero-allocation design, structured logging, and enterprise-grade features.
 
 ## 🚀 Key Features
 
-- **Zero-allocation hot path** - 23.6 ns/op bare message (~42M lines/sec, measured), 0 B/op everywhere
+- **Zero-allocation hot path** - 23.9 ns/op bare message (~42M lines/sec, measured), 0 B/op everywhere
 - **Structured logging** - Type-safe field handling with auto-inference
 - **Multiple output adapters** - Console, file, HTTP, syslog, custom
 - **PII masking** - Automatic sensitive data protection with regex patterns
