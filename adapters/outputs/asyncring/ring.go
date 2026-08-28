@@ -74,6 +74,22 @@ func roundUpPow2(n int) int {
 // Cap returns the ring capacity (a power of two).
 func (r *ring[T]) Cap() int { return len(r.slots) }
 
+// Len reports how many records currently occupy the ring. It is a racy
+// snapshot built from two independent atomic loads — suitable for monitoring
+// and control signals (backpressure), never for synchronization.
+func (r *ring[T]) Len() int {
+	t := r.tail.Load()
+	h := r.head.Load()
+	if t <= h {
+		return 0
+	}
+	n := int(t - h)
+	if n > len(r.slots) {
+		n = len(r.slots)
+	}
+	return n
+}
+
 // enqueue claims the next free slot and invokes fill to populate it in place,
 // then publishes it. It returns false without calling fill if the ring is full.
 // Safe for concurrent producers.

@@ -114,6 +114,14 @@ func (a *RingAdapter) enqueue(e *types.LogEntry) error {
 // (OnFull=Drop) or because they arrived during close.
 func (a *RingAdapter) Dropped() uint64 { return a.dropped.Load() }
 
+// Occupancy reports how many records currently occupy the ring, and its
+// capacity — a racy monitoring snapshot, which is exactly what a
+// backpressure control loop needs (see sampling.NewBackpressureSampler) and
+// nothing more.
+func (a *RingAdapter) Occupancy() (used, capacity int) {
+	return a.ring.Len(), a.ring.Cap()
+}
+
 // WriteErrors returns how many times the destination writer returned an error.
 func (a *RingAdapter) WriteErrors() uint64 { return a.bw.writeErrors.Load() }
 
