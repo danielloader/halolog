@@ -106,6 +106,36 @@ competitor.
 ² zerolog column from the same-day full Windows sweep; HaloLog/phuslu from
 their same-run head-to-head after the fused key emit landed.
 
+## Request-scoped context (5 bound fields + 1 call-site field)
+
+Measured on windows/amd64, same hardware, same-day run as the Windows
+head-to-head above. Each logger uses its idiomatic bound-context API and
+emits the full record per line (`benchmarks/context_bench_test.go`).
+
+| Logger | ns/op | allocs | mechanism |
+|---|---:|---:|---|
+| **HaloLog `With().Logger()`** | **37.4** | 0 B, 0 | context pre-encoded once → one memcpy per line |
+| phuslu Context | 54.5 | 0 B, 0 | pre-encoded context bytes |
+| zerolog `With().Logger()` | 90.8 | 0 B, 0 | context bytes copied per event |
+| zap `With(...)` | 180.5 | 64 B, 1 | cloned encoder + per-line field encode |
+
+The 2026-08-28 quiet-host rerun measured the same scenario at 33.3 ns on
+linux/amd64 and 34.4 ns on windows/amd64 for HaloLog, orderings unchanged
+(see Reproduction below).
+
+## Reproduction — 2026-08-28, quiet host, v1.0.1 as published
+
+The full sweep was rerun on the same hardware with no background load, on
+the shipped v1.0.1 code. Every Linux scenario reproduced within the
+documented drift or improved (ten fields 80.0 ns, twenty 133.1 ns, bound
+context 33.3 ns); every ordering held on both platforms; 0 B/op and
+0 allocs/op in every HaloLog row. Disclosed movement: the quiet host sped
+up all loggers, phuslu on Windows most (35.5 ns bare message), and the
+Windows ten-field cell tightened from a 4 ns lead to 0.9 ns — a
+statistical tie under this document's own sub-5 ns rule. Raw runs: 5 × 1 s
+per scenario, benchstat medians, goos/goarch headers preserved in the
+archived outputs.
+
 ## Cross-OS behavior (profiler-verified)
 
 HaloLog avoids a major source of OS-dependent latency: the engine does no
