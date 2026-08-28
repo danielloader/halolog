@@ -64,6 +64,9 @@ func TestBind_CorrelatesEveryLine(t *testing.T) {
 		if m["trace_id"] != "4bf92f3577b34da6a3ce929d0e0e4736" || m["span_id"] != "00f067aa0ba902b7" {
 			t.Fatalf("line %d missing correlation: %v", i, m)
 		}
+		if m["trace_flags"] != "01" { // FlagsSampled, per the W3C two-hex-digit form
+			t.Fatalf("line %d missing/wrong trace_flags: %v", i, m)
+		}
 	}
 }
 

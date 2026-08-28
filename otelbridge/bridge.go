@@ -37,15 +37,18 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Field keys follow the OpenTelemetry log correlation convention.
+// Field keys follow the OpenTelemetry log correlation convention
+// (trace_id, span_id, trace_flags).
 var (
-	keyTraceID = halolog.Key("trace_id")
-	keySpanID  = halolog.Key("span_id")
+	keyTraceID    = halolog.Key("trace_id")
+	keySpanID     = halolog.Key("span_id")
+	keyTraceFlags = halolog.Key("trace_flags")
 )
 
-// Bind returns a child of l carrying the trace_id and span_id of the span in
-// ctx, hex-encoded once at bind time. When ctx carries no valid span context
-// it returns l unchanged, so it is always safe to call.
+// Bind returns a child of l carrying the trace_id, span_id, and trace_flags
+// (the W3C sampled bit, as two hex digits) of the span in ctx, hex-encoded
+// once at bind time. When ctx carries no valid span context it returns l
+// unchanged, so it is always safe to call.
 func Bind(ctx context.Context, l *core.Logger) *core.Logger {
 	sc := trace.SpanContextFromContext(ctx)
 	if !sc.IsValid() {
@@ -54,5 +57,6 @@ func Bind(ctx context.Context, l *core.Logger) *core.Logger {
 	return l.With().
 		Str(keyTraceID, sc.TraceID().String()).
 		Str(keySpanID, sc.SpanID().String()).
+		Str(keyTraceFlags, sc.TraceFlags().String()).
 		Logger()
 }

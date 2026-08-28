@@ -268,6 +268,53 @@ func TestContext_BoundCap(t *testing.T) {
 	}
 }
 
+// TestContext_BranchingDoesNotAlias pins the copy-on-append contract: a
+// Context is a VALUE that may be branched, and two children derived from the
+// same intermediate context must never share writable backing — neither for
+// the structured fields nor for the pre-encoded bytes. (The original
+// implementation appended into shared backing; with spare capacity at the
+// branch point — guaranteed for children of bound loggers, which seed
+// headroom — the second branch overwrote the first branch's field, and a
+// different-length encoding could tear the first child's bytes entirely.)
+func TestContext_BranchingDoesNotAlias(t *testing.T) {
+	var buf bytes.Buffer
+	base := newDirectBufLogger(&buf)
+
+	// Case 1: branch a first-level context off a BOUND logger (the seeded
+	// +4 capacity made this deterministically broken before the fix).
+	bound := base.With().WithString("svc", "auth").Logger()
+	mid := bound.With() // seeds fields cap n+4, bytes cap +64 — spare capacity
+	c1 := mid.WithString("branch", "one").Logger()
+	c2 := mid.WithString("branch", "two-longer-value").Logger()
+
+	c1.Info("from-c1")
+	m1 := parseLine(t, lastLine(&buf))
+	if m1["branch"] != "one" {
+		t.Fatalf("c1 corrupted by c2's branch: %v", m1)
+	}
+	c2.Info("from-c2")
+	m2 := parseLine(t, lastLine(&buf))
+	if m2["branch"] != "two-longer-value" {
+		t.Fatalf("c2 wrong: %v", m2)
+	}
+
+	// Case 2: branch an intermediate chain link (spare capacity from append
+	// growth). Also verifies the bytes are not torn: both lines must parse.
+	mid2 := base.With().WithString("a", "1")
+	d1 := mid2.WithString("b", "bee").Logger()
+	d2 := mid2.WithString("c", "sea").Logger()
+	d1.Info("d1")
+	md1 := parseLine(t, lastLine(&buf))
+	if md1["b"] != "bee" || md1["c"] != nil {
+		t.Fatalf("d1 corrupted by d2's branch: %v", md1)
+	}
+	d2.Info("d2")
+	md2 := parseLine(t, lastLine(&buf))
+	if md2["c"] != "sea" || md2["b"] != nil {
+		t.Fatalf("d2 wrong: %v", md2)
+	}
+}
+
 // TestContext_LevelInheritedAtDerivation documents level semantics: the child
 // takes the parent's level at With().Logger() time.
 func TestContext_LevelInheritedAtDerivation(t *testing.T) {

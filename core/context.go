@@ -55,8 +55,8 @@ type Context struct {
 func (l *Logger) With() Context {
 	c := Context{l: l}
 	if n := len(l.boundFields); n > 0 {
-		c.fields = append(make([]types.TypedFieldData, 0, n+4), l.boundFields...)
-		c.bytes = append(make([]byte, 0, len(l.boundBytes)+64), l.boundBytes...)
+		c.fields = append(make([]types.TypedFieldData, 0, n), l.boundFields...)
+		c.bytes = append(make([]byte, 0, len(l.boundBytes)), l.boundBytes...)
 	}
 	return c
 }
@@ -64,12 +64,23 @@ func (l *Logger) With() Context {
 // add binds one field: captured as structured data for the capture path and
 // encoded to bytes once for the direct path. Beyond maxBoundFields it is a
 // no-op (documented cap).
+//
+// COPY-ON-APPEND CONTRACT: a Context is a value that callers may branch —
+// two children derived from the same intermediate context must never share
+// writable backing. Both appends therefore clamp capacity to length
+// (three-index slice) first, forcing append to reallocate into a fresh
+// array; without this, spare capacity at a branch point let the second
+// branch overwrite the first branch's field — and, for the byte form, tear
+// its pre-encoded JSON. Cost is one copy per bound field at construction
+// time (≤ maxBoundFields, off the hot path); the per-line cost model is
+// untouched.
 func (c Context) add(kd *types.FieldKey, key string, val types.FieldValue) Context {
 	if len(c.fields) >= maxBoundFields {
 		return c
 	}
-	c.fields = append(c.fields, types.TypedFieldData{Key: key, KeyDesc: kd, Val: val})
-	c.bytes = jsonfmt.AppendField(c.bytes, kd, key, val)
+	c.fields = append(c.fields[:len(c.fields):len(c.fields)],
+		types.TypedFieldData{Key: key, KeyDesc: kd, Val: val})
+	c.bytes = jsonfmt.AppendField(c.bytes[:len(c.bytes):len(c.bytes)], kd, key, val)
 	return c
 }
 
@@ -142,6 +153,11 @@ func (c Context) WithError(err error) Context {
 		return c
 	}
 	return c.add(nil, "error", types.ErrorValue(err))
+}
+
+// WithAny binds an arbitrary value under a plain string key.
+func (c Context) WithAny(key string, value interface{}) Context {
+	return c.add(nil, key, types.AnyValue(value))
 }
 
 // Logger derives the child logger. The child shares the parent's adapters,
