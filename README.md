@@ -493,14 +493,13 @@ Disabled level         0.83 ns         —        —        —        —     
 HaloLog allocations    0 B/op, 0 allocs/op in every scenario
 ```
 
-The honest summary: HaloLog wins every scenario in this field on both
-linux/amd64 and windows/amd64, at 0 allocs/op, with fully escaped keys and
-never-interleaved lines. It is 2.6 times faster than phuslu on bare
-messages, 2.2 times at one field, 44% at ten fields, and 23% at twenty on
-Linux, and the same-run Windows head-to-head is also swept. HaloLog is also
-the only logger in the field whose latency is stable across operating
-systems, because it does no per-line clock reads and no syscalls on the hot
-path. The full method, fairness notes, and per-platform tables are in
+The honest summary: HaloLog wins every published scenario in the six-logger
+Linux comparison and the three-logger Windows head-to-head, at 0 allocs/op,
+with fully escaped keys and never-interleaved lines. It is 2.6 times faster
+than phuslu on bare messages, 2.2 times at one field, 44% at ten fields, and
+23% at twenty on Linux. HaloLog avoids a major source of OS-dependent latency
+because it does no per-line clock reads and no syscalls on the hot path. The
+full method, fairness notes, and per-platform tables are in
 [benchmarks/comprehensive_comparison.md](benchmarks/comprehensive_comparison.md),
 and every hot path is pinned at 0 allocs/op by eight committed guards
 (`go test ./core -run TestZeroAlloc`).

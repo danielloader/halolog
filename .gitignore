@@ -17,6 +17,9 @@ cover.out
 *.out
 test-output*/
 *.prof
+*.pprof
+cpu.prof
+mem.prof
 
 # Logs and local state
 *.log
@@ -40,4 +43,4 @@ TEMPDOCS/
 _parked/
 
 *.backup
-
+*.bacup

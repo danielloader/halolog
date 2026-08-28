@@ -2,10 +2,11 @@
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities privately to the maintainer
-(repository owner) rather than opening a public issue. Include a minimal
-reproduction; you will receive an acknowledgment and a fix timeline. Please
-allow a reasonable disclosure window before publishing details.
+Please use the repository's **Security → Report a vulnerability** flow to
+report suspected vulnerabilities privately. Do not open a public issue with
+vulnerability details. Include a minimal reproduction; you will receive an
+acknowledgment and a fix timeline. Please allow a reasonable disclosure window
+before publishing details.
 
 ## Security-relevant features (implemented and tested)
 

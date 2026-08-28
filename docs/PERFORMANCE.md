@@ -5,10 +5,10 @@ aspirational. The canonical numbers, method, and fairness notes live in
 [`benchmarks/comprehensive_comparison.md`](../benchmarks/comprehensive_comparison.md);
 as of 2026-08-26 (Go 1.27.0, linux/amd64, benchstat medians) HaloLog leads a
 six-logger field — phuslu/log, zerolog, zap, slog, logrus — in every scenario:
-**23.9 ns bare message, 35.2 ns one field, 105.2 ns ten fields (80.1 ns with
-pre-declared keys), 0.81 ns disabled level, 0 B/op and 0 allocs/op throughout.**
+**23.9 ns bare message, 32.0 ns one field, 83.6 ns ten fields (83.1 ns with
+pre-declared keys), 0.83 ns disabled level, 0 B/op and 0 allocs/op throughout.**
 
-Seven committed allocation guards pin the hot paths at zero allocations:
+Eight committed allocation guards pin the hot paths at zero allocations:
 
 ```bash
 go test ./core -run TestZeroAlloc

@@ -43,7 +43,6 @@ func init() {
 }
 
 // BenchmarkLoggerInfoDiscard benchmarks Info with discard adapter.
-// Target: < 2 ns/op (clean package achieves 1.68 ns/op)
 // This is the primary benchmark for the hot path.
 func BenchmarkLoggerInfoDiscard(b *testing.B) {
 	logger := NewLogger(Config{
@@ -61,7 +60,6 @@ func BenchmarkLoggerInfoDiscard(b *testing.B) {
 }
 
 // BenchmarkLoggerInfo benchmarks simple Info logging with interface adapter.
-// Target: < 10 ns/op
 func BenchmarkLoggerInfo(b *testing.B) {
 	logger := NewLogger(Config{
 		Component: "bench",
@@ -78,7 +76,6 @@ func BenchmarkLoggerInfo(b *testing.B) {
 }
 
 // BenchmarkLoggerInfoDisabled benchmarks Info when level is disabled.
-// Target: ~0 ns/op (no-op function)
 func BenchmarkLoggerInfoDisabled(b *testing.B) {
 	logger := NewLogger(Config{
 		Component: "bench",
@@ -95,7 +92,6 @@ func BenchmarkLoggerInfoDisabled(b *testing.B) {
 }
 
 // BenchmarkLoggerWithField1Field benchmarks logging with 1 field.
-// Target: < 20 ns/op
 func BenchmarkLoggerWithField1Field(b *testing.B) {
 	logger := NewLogger(Config{
 		Component: "bench",
@@ -112,7 +108,6 @@ func BenchmarkLoggerWithField1Field(b *testing.B) {
 }
 
 // BenchmarkLoggerWithField1FieldDiscard benchmarks logging with 1 field and discard adapter.
-// Target: < 20 ns/op
 func BenchmarkLoggerWithField1FieldDiscard(b *testing.B) {
 	logger := NewLogger(Config{
 		Component: "bench",
@@ -129,7 +124,6 @@ func BenchmarkLoggerWithField1FieldDiscard(b *testing.B) {
 }
 
 // BenchmarkLoggerTyped1FieldDiscard benchmarks TypedFieldBuilder with 1 field.
-// Target: < 15 ns/op (no interface{} boxing)
 func BenchmarkLoggerTyped1FieldDiscard(b *testing.B) {
 	logger := NewLogger(Config{
 		Component: "bench",
@@ -146,7 +140,6 @@ func BenchmarkLoggerTyped1FieldDiscard(b *testing.B) {
 }
 
 // BenchmarkLoggerWithField5Fields benchmarks logging with 5 fields.
-// Target: < 35 ns/op
 func BenchmarkLoggerWithField5Fields(b *testing.B) {
 	logger := NewLogger(Config{
 		Component: "bench",
@@ -168,7 +161,6 @@ func BenchmarkLoggerWithField5Fields(b *testing.B) {
 }
 
 // BenchmarkLoggerWithField10Fields benchmarks logging with 10 fields.
-// Target: < 45 ns/op
 func BenchmarkLoggerWithField10Fields(b *testing.B) {
 	logger := NewLogger(Config{
 		Component: "bench",
@@ -195,7 +187,6 @@ func BenchmarkLoggerWithField10Fields(b *testing.B) {
 }
 
 // BenchmarkLoggerWithField20Fields benchmarks logging with 20 fields.
-// Target: < 100 ns/op
 func BenchmarkLoggerWithField20Fields(b *testing.B) {
 	logger := NewLogger(Config{
 		Component: "bench",

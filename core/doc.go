@@ -22,7 +22,7 @@
 //
 // # Zero Allocations
 //
-// All logging paths achieve 0 B/op, 0 allocs/op through:
+// The guarded logging hot paths achieve 0 B/op, 0 allocs/op through:
 //   - Per-processor state pool for LogEntry reuse
 //   - Value-type FluentBuilder (no heap escape)
 //   - Pre-composed function pointers (no runtime branching)
@@ -30,14 +30,8 @@
 //
 // # Performance
 //
-// Benchmark results (Intel i7-12700H):
-//
-//	BenchmarkLoggerInfoDiscard:     1.25 ns/op, 0 B/op, 0 allocs/op
-//	BenchmarkLoggerInfoDisabled:    1.23 ns/op, 0 B/op, 0 allocs/op
-//	BenchmarkLoggerWith1Field:      29.32 ns/op, 0 B/op, 0 allocs/op
-//	BenchmarkLoggerWith5Fields:     42.25 ns/op, 0 B/op, 0 allocs/op
-//	BenchmarkLoggerWith10Fields:    59.71 ns/op, 0 B/op, 0 allocs/op
-//	BenchmarkLoggerWith20Fields:    118.6 ns/op, 0 B/op, 0 allocs/op
+// Results are machine- and version-specific. The repository's canonical,
+// reproducible comparison is benchmarks/comprehensive_comparison.md.
 //
 // # Fluent Configuration API
 //
@@ -57,8 +51,8 @@
 //
 // # Logging With Fields
 //
-//	logger.With("user_id", 123).
-//	    With("action", "login").
+//	logger.WithField("user_id", 123).
+//	    WithField("action", "login").
 //	    Info("user logged in")
 //
 // # Philosophy

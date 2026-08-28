@@ -8,6 +8,28 @@ on:
 
 jobs:
   ci:
-    uses: go-gen-ecosystem/.github/.github/workflows/reusable-go-ci.yml@main
+    # Pin the reusable workflow so CI behavior cannot change without review.
+    uses: go-gen-ecosystem/.github/.github/workflows/reusable-go-ci.yml@8566e8c1160036afa595a95fa4046720418ebeb4
     with:
       coverage-threshold: 60
+
+  otelbridge:
+    name: otelbridge module
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: otelbridge
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: stable
+          cache-dependency-path: otelbridge/go.sum
+      - name: Verify module
+        env:
+          GOWORK: off
+        run: |
+          go vet ./...
+          go test -race ./... -count=1

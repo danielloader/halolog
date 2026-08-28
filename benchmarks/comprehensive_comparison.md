@@ -108,9 +108,11 @@ their same-run head-to-head after the fused key emit landed.
 
 ## Cross-OS behavior (profiler-verified)
 
-HaloLog is the only logger in the field whose latency is
-**platform-invariant** — the engine does no per-line wall-clock read and no
-syscalls (one atomic load of the cached clock, fused header memcpy). phuslu
+HaloLog avoids a major source of OS-dependent latency: the engine does no
+per-line wall-clock read and no syscalls (one atomic load of the cached clock,
+then a fused header memcpy). On this host its bare-message result moved from
+23.9 ns on Linux to 26.6 ns on Windows; benchmark latency is not literally
+platform-invariant. phuslu
 swings ~30% between OSes because ~39% of its line is per-line timestamp
 acquisition + formatting (its own CPU profile) and Windows' time source is
 far cheaper than Linux's vDSO `clock_gettime`. That Windows tailwind — plus
@@ -121,11 +123,11 @@ last two cells while keeping keys fully escaped.
 
 ## Verdict
 
-- **HaloLog wins every scenario on both platforms.** Linux (the CI
-  environment): 2.6×/2.2× over phuslu at zero/one field, **44% faster at
+- **HaloLog wins every published scenario in these measurements.** In the
+  six-logger Linux table: 2.6×/2.2× over phuslu at zero/one field, **44% faster at
   ten fields** (83.6 vs 120.7), 23% at twenty (146.0 vs 179.9). Windows
-  (same-run): 26.6 vs 46.2 bare, 99.2 vs 103.2 at ten, 162.6 vs 176.3 at
-  twenty.
+  three-logger head-to-head: 26.6 vs 46.2 bare, 99.2 vs 103.2 at ten,
+  162.6 vs 176.3 at twenty.
 - 0 B/op, 0 allocs/op in every HaloLog scenario, with fully escaped keys
   and never-interleaved lines — correctness guarantees the closest rival
   does not offer.
