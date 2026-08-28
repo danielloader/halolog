@@ -118,6 +118,35 @@ the masked path — binding is never a masking bypass), appear before per-line
 fields, are capped at 32 per logger, and every line remains 0 allocs/op
 (guarded). The child inherits the parent's level at derivation.
 
+### Schema-checked logging facades (`halologgen`)
+
+Declare your loggable fields once in a schema; generate a facade where every
+field is a **typed method** — a misspelled key or wrong-typed value fails the
+build instead of corrupting a log line. Key escaping is computed at
+generation time and frozen by a generated test.
+
+```yaml
+# logging.yaml
+package: applog
+fields:
+  - { name: user_id, type: string, ident: UserID }
+  - { name: status,  type: int }
+```
+
+```bash
+go run github.com/go-gen-ecosystem/halolog/cmd/halologgen -schema logging.yaml -out ./applog
+```
+
+```go
+log := applog.Wrap(coreLogger)
+log.Info().UserID("alice").Status(200).Msg("handled")   // compile-checked
+reqLog := log.With().UserID("alice").Logger()           // schema-typed contexts too
+```
+
+Generated facades ride the same hot paths (level-first lines, pre-declared
+keys, bound contexts) and stay 0 allocs/op. See `examples/applog/` for a
+complete generated package with its determinism and behavior tests.
+
 ### Level-first lines (cheapest disabled logging)
 
 `InfoLine`/`DebugLine`/`WarnLine`/`ErrorLine` fix the level when the line opens,

@@ -1,0 +1,24 @@
+# Logging schema for the example service facade.
+# Regenerate with:
+#   go run ./cmd/halologgen -schema examples/applog/schema.yaml -out examples/applog
+package: applog
+fields:
+  - name: user_id
+    type: string
+    ident: UserID
+  - name: tenant
+    type: string
+  - name: status
+    type: int
+  - name: duration_ms
+    type: int64
+    ident: DurationMS
+  - name: ratio
+    type: float64
+  - name: cache_hit
+    type: bool
+  - name: err
+    type: error
+    ident: ErrField
+  - name: payload
+    type: any

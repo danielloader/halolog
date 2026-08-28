@@ -64,6 +64,23 @@ All notable changes to HaloLog are documented here. This project adheres to
   `//go:inline` pseudo-directives (not a real compiler directive) removed.
 
 ### Added (features)
+- **`halologgen` — schema-to-facade code generation** (`cmd/halologgen`).
+  A YAML schema names every loggable field with its type; the generator
+  emits a facade package where each field is a typed method on level-first
+  line builders and a context builder — a misspelled key or wrong-typed
+  value is a COMPILE error. Key escaping is computed at generation time and
+  frozen by a generated test that fails the consumer's build if the runtime
+  escaper ever diverges. Deterministic output (regenerate-and-diff test
+  against the committed `examples/applog`), 8 validation rules covered,
+  and the generated hot path is guarded at 0 allocs/op.
+- **Context branching fix (copy-on-append)** — branching a Context with
+  spare backing capacity let the second branch overwrite the first branch's
+  bound field (deterministic for children of bound loggers; the byte form
+  could tear). Confirmed test-first and fixed
+  by capacity-clamping both appends so every Context value is
+  immutable-in-effect. Also: `Context.WithAny` for setter symmetry, and
+  `otelbridge.Bind` now binds `trace_flags` alongside trace/span IDs,
+  completing the OTel correlation convention.
 - **Contextual (child) loggers** — `logger.With().Str(...).WithString(...).Logger()`
   binds fields once: encoded to final bytes at derivation, emitted as ONE
   memcpy per line on the direct path, prepended as structured (maskable) data
