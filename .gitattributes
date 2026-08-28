@@ -1,4 +1,4 @@
-﻿# Normalize line endings: LF in the repo and working tree for portable tooling.
+# Normalize line endings: LF in the repo and working tree for portable tooling.
 * text=auto eol=lf
 *.png binary
 *.jpg binary
@@ -7,4 +7,3 @@
 
 # Keep the parked prototype archive out of published release archives
 _parked/** export-ignore
-
