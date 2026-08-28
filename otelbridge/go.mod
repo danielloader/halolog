@@ -2,10 +2,8 @@ module github.com/go-gen-ecosystem/halolog/otelbridge
 
 go 1.24.0
 
-replace github.com/go-gen-ecosystem/halolog => ../
-
 require (
-	github.com/go-gen-ecosystem/halolog v0.0.0-00010101000000-000000000000
+	github.com/go-gen-ecosystem/halolog v1.0.0
 	go.opentelemetry.io/otel/trace v1.37.0
 )
 
