@@ -36,5 +36,8 @@ Thumbs.db
 # Local-only staging for docs pending verification -- never tracked, never published
 TEMPDOCS/
 
+# Local parked-prototype archive -- kept on disk for possible un-parking, never published
+_parked/
+
 *.backup
 

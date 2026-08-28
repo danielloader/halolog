@@ -13,11 +13,10 @@
 // limitations under the License.
 
 // Package edge exercises HaloLog's hostile-input and API-misuse edges through
-// the public API only. Every test here pins behavior that once regressed (or
-// was found broken in an earlier hardening pass): level-filter bypass on the
-// classic fluent API, an unconsulted sampler, non-finite floats emitting
-// invalid JSON, pooled-state corruption from builder reuse, and pre-epoch
-// timestamp rendering.
+// the public API only. Every test here pins behavior that once regressed:
+// level-filter bypass on the classic fluent API, an unconsulted sampler,
+// non-finite floats emitting invalid JSON, pooled-state corruption from
+// builder reuse, and pre-epoch timestamp rendering.
 // @author Admilson B. F. Cossa
 package edge
 

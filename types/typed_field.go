@@ -32,8 +32,8 @@ type TypedField interface {
 // typed value (Val, boxing-free for scalars), and the legacy interface value
 // (Value) used by the WithField / auto-inference / masking paths. Presentation
 // (color/style), sensitivity, and dictionary-id fields that no shipped formatter
-// reads were removed to shrink the per-field copy; field styling now lives in
-// _parked/core_fieldstyler.
+// reads were removed to shrink the per-field copy; field styling was parked out
+// of the shipped tree.
 type TypedFieldData struct {
 	// Key is the raw field name. Empty when KeyDesc carries a pre-declared key.
 	Key string

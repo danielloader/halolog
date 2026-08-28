@@ -4,6 +4,3 @@
 *.jpg binary
 *.zip binary
 *.exe binary
-
-# Keep the parked prototype archive out of published release archives
-_parked/** export-ignore

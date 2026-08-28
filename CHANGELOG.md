@@ -8,6 +8,18 @@ All notable changes to HaloLog are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-28
+
+First public release. (A `v1.0.0` tag was cut minutes earlier and retracted
+the same day after a repository cleanup removed the parked prototype archive
+from the published tree and history; depend on `v1.0.1` or later.) Everything
+below is new since the internal 1.0.0 milestone.
+
+### Changed (publication cleanup)
+- The parked prototype archive is no longer part of the published repository
+  or its history; superseded prototypes are kept in a local archive instead.
+- Added `CITATION.cff` and a README citation entry.
+
 ### Fixed (hardening)
 - **Linux/macOS build restored** — `syslog_unix.go` referenced a package-local
   formatter deleted in an earlier refactor and had never compiled since; it now
@@ -195,7 +207,7 @@ All notable changes to HaloLog are documented here. This project adheres to
 
 ## [1.0.0] - 2026-07-07
 
-First public release: a zero-allocation structured logging framework for Go.
+Internal 1.0.0 milestone: a zero-allocation structured logging library for Go.
 
 ### Added
 - Console/stdout output adapter (`adapters/outputs/console`) — thread-safe and
@@ -225,8 +237,8 @@ First public release: a zero-allocation structured logging framework for Go.
   (`GetLogger`) to a fluent builder (`core.New()...MustBuild()`), leaving the
   root and CLI calling removed functions. The root `halolog.GetLogger`/
   `GetLoggerWithConfig` are reimplemented as a name-keyed singleton registry over
-  the real builder; the benchmark CLI, version shims, examples and sandbox are
-  parked under `_parked/`.
+  the real builder; the benchmark CLI, version shims, examples and sandbox were
+  parked out of the shipped tree.
 - **Removed dead scaffolding**: the `HaloLogger` god-object (a 45-field exported
   struct never constructed) and the `LoggerProvider`/`LoggerFactory`/
   `LoggerRegistry` interfaces that only existed to return it. The real logger is

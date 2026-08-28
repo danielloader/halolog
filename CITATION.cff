@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use HaloLog in your work, please cite it as below."
+type: software
+title: "HaloLog: A Zero-Allocation Structured Logging Library for Go"
+authors:
+  - family-names: "Cossa"
+    given-names: "Admilson B. F."
+version: 1.0.1
+date-released: 2026-08-28
+url: "https://github.com/Go-Gen-Ecosystem/halolog"
+repository-code: "https://github.com/Go-Gen-Ecosystem/halolog"
+license: Apache-2.0
+keywords:
+  - go
+  - logging
+  - structured-logging
+  - zero-allocation
+  - performance

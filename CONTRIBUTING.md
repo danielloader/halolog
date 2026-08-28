@@ -1,6 +1,6 @@
-# Contributing to HaloLogger
+# Contributing to HaloLog
 
-Thank you for your interest in contributing to HaloLogger. This document outlines the enterprise-grade standards and processes for contributing to our zero-allocation logging framework.
+Thank you for your interest in contributing to HaloLog. This document outlines the standards and processes for contributing to this zero-allocation logging library.
 
 ## 🚀 Getting Started
 
@@ -302,7 +302,7 @@ Include this information for effective debugging:
 
 - Go version: `go version`
 - OS/Architecture: `go env GOOS GOARCH`
-- HaloLogger version: (from go.mod)
+- HaloLog version: (from go.mod)
 
 **Problem:**
 
@@ -400,7 +400,7 @@ go mod verify
 
 ## 📄 License
 
-By contributing to HaloLogger, you agree that your contributions will be licensed under the **Apache License 2.0**. All contributions must be original work or properly licensed third-party code.
+By contributing to HaloLog, you agree that your contributions will be licensed under the **Apache License 2.0**. All contributions must be original work or properly licensed third-party code.
 
 ## 📞 Getting Help
 
@@ -411,4 +411,4 @@ By contributing to HaloLogger, you agree that your contributions will be license
 
 ---
 
-**Thank you for contributing to HaloLogger! Together we're building the most performant logging framework in the Go ecosystem.**
+**Thank you for contributing to HaloLog.**

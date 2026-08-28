@@ -22,8 +22,9 @@ Working conventions:
   awaiting verification against the current code. Nothing in it is published
   or tracked; a document graduates into `docs/` only after every claim and
   API reference in it has been checked.
-- **`_parked/` (tracked, export-ignored)** — archived prototype *code* kept
-  for possible un-parking; excluded from release archives.
+- **Parked prototypes (local archive, untracked)** — superseded prototype
+  *code* is kept in a local archive outside the published repository, for
+  possible un-parking; it is not part of the repo or its history.
 
 Planned graduations from TEMPDOCS: GETTING_STARTED, EXAMPLES, API_REFERENCE,
 ARCHITECTURE (each needs a line-by-line pass against the v1.0 API), and a
