@@ -68,7 +68,33 @@ func acquireState(l *Logger) *perPState {
 	if da := l.directAdapter; da != nil {
 		s.directJSON, _ = da.DirectEncoder().(*jsonfmt.Formatter)
 	}
+	if s.directJSON == nil {
+		prefillBound(s, l)
+	}
 	return s
+}
+
+// captureState fetches pooled state for a line that must take the capture
+// path regardless of adapter capabilities (the interface{}-valued
+// FieldBuilder API, and bound message-only lines). The bound-context prefix
+// is prepended here — the one place capture-path acquisition happens.
+func captureState(l *Logger) *perPState {
+	s := globalPerPPool.get()
+	prefillBound(s, l)
+	return s
+}
+
+// prefillBound copies the logger's bound context into the entry's static
+// prefix so the capture path renders (and masks) it ahead of per-line fields
+// — mirroring the direct path, which emits the same context from its
+// pre-encoded bytes. Bound size is capped at construction (maxBoundFields),
+// so the copy always fits the 64-slot buffer.
+func prefillBound(s *perPState, l *Logger) {
+	if len(l.boundFields) == 0 {
+		return
+	}
+	n := copy(s.entry.StaticFields, l.boundFields)
+	s.entry.StaticFieldCount = n
 }
 
 // captureField stores one field as a TypedFieldData for the formatter — the
@@ -383,13 +409,16 @@ func dispatchLine(l *Logger, s *perPState, epoch uint32, level types.LogLevel, m
 		return
 	}
 
-	// Direct fast path: fields are already encoded bytes; assemble
-	// header + fields + closer in the pooled line buffer and hand the finished
-	// line to the raw writer. Every call here is statically dispatched on the
-	// concrete JSON formatter. Eligibility (see NewLogger) guarantees masking
-	// and sampling are off, so no transform is skipped.
+	// Direct fast path: fields are already encoded bytes; assemble header +
+	// bound context + fields + closer in the pooled line buffer and hand the
+	// finished line to the raw writer. Every call here is statically
+	// dispatched on the concrete JSON formatter. Eligibility (see NewLogger)
+	// guarantees masking and sampling are off, so no transform is skipped.
 	if f := s.directJSON; f != nil {
 		line := f.AppendHeader(s.lineBuf[:0], l.clock.GetNsecValue(), level, msg)
+		if len(l.boundBytes) > 0 {
+			line = append(line, l.boundBytes...) // whole bound context: one memcpy
+		}
 		line = append(line, s.directFields...)
 		line = jsonfmt.AppendCloser(line)
 		s.lineBuf = line // retain growth for reuse
@@ -398,47 +427,49 @@ func dispatchLine(l *Logger, s *perPState, epoch uint32, level types.LogLevel, m
 			l.metrics.counts[level].Add(1)
 		}
 		globalPerPPool.put(s)
-		return
-	}
+	} else {
+		entry := &s.entry
+		entry.Level = level
+		entry.Message = msg
+		entry.Component = l.component
+		entry.TimestampUnix = l.clock.GetNsecValue()
+		entry.StaticFields = entry.StaticFields[:entry.StaticFieldCount]
 
-	entry := &s.entry
-	entry.Level = level
-	entry.Message = msg
-	entry.Component = l.component
-	entry.TimestampUnix = l.clock.GetNsecValue()
-	entry.StaticFields = entry.StaticFields[:entry.StaticFieldCount]
-
-	// Sampling drops before the (more expensive) masking transform. Fatal and
-	// Panic lines are never sampled away — losing the last line before a
-	// crash is the one drop an operator cannot afford.
-	if l.sampler != nil && level < types.FatalLevel && !l.sampler.ShouldSample(entry) {
-		globalPerPPool.put(s)
-		return
-	}
-
-	if l.enableMasking && l.masker != nil {
-		l.masker.Apply(entry)
-	}
-
-	switch {
-	case l.discardAdapter != nil:
-		_ = l.discardAdapter.WriteZero(nil)
-	case len(l.adapters) == 1:
-		_ = l.adapters[0].WriteZero(entry)
-	default:
-		for _, a := range l.adapters {
-			_ = a.WriteZero(entry)
+		// Sampling drops before the (more expensive) masking transform. Fatal
+		// and Panic lines are never sampled away — losing the last line before
+		// a crash is the one drop an operator cannot afford.
+		if l.sampler != nil && level < types.FatalLevel && !l.sampler.ShouldSample(entry) {
+			globalPerPPool.put(s)
+			return
 		}
+
+		if l.enableMasking && l.masker != nil {
+			l.masker.Apply(entry)
+		}
+
+		switch {
+		case l.discardAdapter != nil:
+			_ = l.discardAdapter.WriteZero(nil)
+		case len(l.adapters) == 1:
+			_ = l.adapters[0].WriteZero(entry)
+		default:
+			for _, a := range l.adapters {
+				_ = a.WriteZero(entry)
+			}
+		}
+
+		if l.metrics != nil {
+			l.metrics.counts[level].Add(1)
+		}
+
+		globalPerPPool.put(s)
 	}
 
-	if l.metrics != nil {
-		l.metrics.counts[level].Add(1)
-	}
-
-	globalPerPPool.put(s)
-
-	// Terminal-level semantics, applied after the state is safely back in the
-	// pool so a recovered panic leaks nothing.
+	// Terminal-level semantics on the SHARED tail, applied on both encode
+	// paths after the state is safely back in the pool (a recovered panic
+	// leaks nothing). When this switch lived on the capture branch only,
+	// Typed().Fatal on a direct-eligible logger wrote the line but skipped
+	// the flush-and-exit contract.
 	switch level {
 	case types.FatalLevel:
 		_ = l.Flush()

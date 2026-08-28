@@ -77,6 +77,15 @@ type Logger struct {
 	// Overridable via Config.ExitFunc for tests and embedders.
 	exitFunc func(int)
 
+	// Bound context (child loggers, see context.go). Both are immutable after
+	// construction and empty on root loggers. boundBytes is the context
+	// pre-encoded once as `,"k":v…` — the direct path emits it with a single
+	// memcpy per line; boundFields is the same context as structured data,
+	// prepended at state acquisition on the capture path so maskers see it
+	// and both paths stay byte-identical.
+	boundFields []types.TypedFieldData
+	boundBytes  []byte
+
 	// Direct-append fast path (both non-nil only when the sole adapter accepts
 	// raw lines and can expose a direct encoder, and no per-entry transform
 	// such as masking or sampling is configured — see NewLogger). The encoder
@@ -173,6 +182,41 @@ func NewLogger(config Config) *Logger {
 // setupFunctionPointers sets up function pointers based on configuration.
 // This is the startup-time specialization - each level gets the exact function it needs.
 func (l *Logger) setupFunctionPointers(hot *hotState, level types.LogLevel) {
+	// Bound context on a non-direct, non-discard logger: route every level
+	// through the pooled capture path, whose single dispatch point
+	// (dispatchLine) already handles the bound prefix, sampling, masking,
+	// metrics, and Fatal/Panic semantics — one implementation, not a
+	// duplicated matrix. Direct-eligible bound loggers skip this gate: their
+	// message path appends the pre-encoded bound bytes itself (logDirect),
+	// and discard drops everything regardless.
+	if len(l.boundFields) > 0 &&
+		(l.rawWriter == nil || l.directAdapter == nil) &&
+		l.discardAdapter == nil {
+		hot.traceFunc = noopLog
+		if level <= types.TraceLevel {
+			hot.traceFunc = l.traceBound
+		}
+		hot.debugFunc = noopLog
+		if level <= types.DebugLevel {
+			hot.debugFunc = l.debugBound
+		}
+		hot.infoFunc = noopLog
+		if level <= types.InfoLevel {
+			hot.infoFunc = l.infoBound
+		}
+		hot.warnFunc = noopLog
+		if level <= types.WarnLevel {
+			hot.warnFunc = l.warnBound
+		}
+		hot.errorFunc = noopLog
+		if level <= types.ErrorLevel {
+			hot.errorFunc = l.errorBound
+		}
+		hot.fatalFunc = l.fatalBound
+		hot.panicFunc = l.panicBound
+		return
+	}
+
 	// Sampling configured: route every samplable level through the
 	// sampler-aware generic path. Sampling implies extra per-line work anyway,
 	// so the mask×adapter specialization matrix is not duplicated for it.
@@ -231,6 +275,13 @@ func (l *Logger) setupFunctionPointers(hot *hotState, level types.LogLevel) {
 		}
 		hot.fatalFunc = l.realFatal
 		hot.panicFunc = l.realPanic
+		if len(l.boundFields) > 0 {
+			// Fatal/Panic must carry the bound context too; the pooled
+			// capture route renders it (byte-identical) and dispatchLine
+			// applies the flush-exit / panic contract.
+			hot.fatalFunc = l.fatalBound
+			hot.panicFunc = l.panicBound
+		}
 		return
 	}
 
@@ -557,6 +608,9 @@ func (l *Logger) logDirect(level types.LogLevel, msg string) {
 	}
 	s := globalPerPPool.get()
 	line := enc.AppendHeader(s.lineBuf[:0], l.clock.GetNsecValue(), level, msg)
+	if len(l.boundBytes) > 0 {
+		line = append(line, l.boundBytes...) // whole bound context: one memcpy
+	}
 	line = jsonfmt.AppendCloser(line)
 	s.lineBuf = line // retain growth for reuse
 	_ = l.rawWriter.WriteRaw(line)
@@ -571,6 +625,25 @@ func (l *Logger) debugDirect(_ *Logger, msg string) { l.logDirect(types.DebugLev
 func (l *Logger) infoDirect(_ *Logger, msg string)  { l.logDirect(types.InfoLevel, msg) }
 func (l *Logger) warnDirect(_ *Logger, msg string)  { l.logDirect(types.WarnLevel, msg) }
 func (l *Logger) errorDirect(_ *Logger, msg string) { l.logDirect(types.ErrorLevel, msg) }
+
+// ===== BOUND-CONTEXT MESSAGE FUNCTIONS (child loggers on the capture path) =====
+
+// logBoundCapture routes a message-only line on a bound (child) logger
+// through the pooled capture path: captureState prepends the bound fields,
+// and dispatchLine — the single dispatch point — applies sampling, masking,
+// metrics, and terminal semantics. No logic is duplicated here.
+func (l *Logger) logBoundCapture(level types.LogLevel, msg string) {
+	s := captureState(l)
+	dispatchLine(l, s, s.epoch, level, msg)
+}
+
+func (l *Logger) traceBound(_ *Logger, msg string) { l.logBoundCapture(types.TraceLevel, msg) }
+func (l *Logger) debugBound(_ *Logger, msg string) { l.logBoundCapture(types.DebugLevel, msg) }
+func (l *Logger) infoBound(_ *Logger, msg string)  { l.logBoundCapture(types.InfoLevel, msg) }
+func (l *Logger) warnBound(_ *Logger, msg string)  { l.logBoundCapture(types.WarnLevel, msg) }
+func (l *Logger) errorBound(_ *Logger, msg string) { l.logBoundCapture(types.ErrorLevel, msg) }
+func (l *Logger) fatalBound(_ *Logger, msg string) { l.logBoundCapture(types.FatalLevel, msg) }
+func (l *Logger) panicBound(_ *Logger, msg string) { l.logBoundCapture(types.PanicLevel, msg) }
 
 // ===== SAMPLED LEVEL FUNCTIONS (selected when a sampler is configured) =====
 
@@ -600,9 +673,10 @@ func (l *Logger) errorSampled(_ *Logger, msg string) { l.logSampled(types.ErrorL
 // Returns by VALUE to avoid heap escape.
 // Gets per-P state lazily on first field addition.
 func (l *Logger) WithField(key string, value interface{}) FieldBuilder {
-	state := globalPerPPool.get()
-	state.entry.StaticFields[0] = types.TypedFieldData{Key: key, Value: value}
-	state.entry.StaticFieldCount = 1
+	state := captureState(l)
+	n := state.entry.StaticFieldCount // bound-context prefix, if any
+	state.entry.StaticFields[n] = types.TypedFieldData{Key: key, Value: value}
+	state.entry.StaticFieldCount = n + 1
 
 	return FieldBuilder{
 		logger: l,
@@ -618,9 +692,10 @@ func (l *Logger) WithError(err error) FieldBuilder {
 		return FieldBuilder{logger: l}
 	}
 
-	state := globalPerPPool.get()
-	state.entry.StaticFields[0] = types.TypedFieldData{Key: "error", Value: err.Error()}
-	state.entry.StaticFieldCount = 1
+	state := captureState(l)
+	n := state.entry.StaticFieldCount // bound-context prefix, if any
+	state.entry.StaticFields[n] = types.TypedFieldData{Key: "error", Value: err.Error()}
+	state.entry.StaticFieldCount = n + 1
 
 	return FieldBuilder{
 		logger: l,

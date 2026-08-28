@@ -101,6 +101,36 @@ func TestZeroAlloc_MessageDirect(t *testing.T) {
 	}
 }
 
+// TestZeroAlloc_BoundContext guards the child-logger hot path: once the
+// context is bound (allocates, once, off the hot path), every line — message
+// only or with fields, direct or capture — must stay at 0 allocs/op.
+func TestZeroAlloc_BoundContext(t *testing.T) {
+	direct := NewLogger(Config{
+		Component: "guard",
+		Level:     types.DebugLevel,
+		Adapters:  []types.Adapter{&benchmarkAdapter{}},
+	})
+	capture := NewLogger(Config{
+		Component: "guard",
+		Level:     types.DebugLevel,
+		Adapters:  []types.Adapter{&benchmarkAdapter{}, &benchmarkAdapter{}},
+	})
+
+	for name, l := range map[string]*Logger{"direct": direct, "capture": capture} {
+		child := l.With().WithString("svc", "auth").WithInt("shard", 3).Logger()
+		if allocs := testing.AllocsPerRun(1000, func() {
+			child.Info("bound hot path")
+		}); allocs != 0 {
+			t.Fatalf("%s bound message-only must allocate 0 times/op, got %.2f", name, allocs)
+		}
+		if allocs := testing.AllocsPerRun(1000, func() {
+			child.Typed().WithInt("status", 200).Info("bound + field")
+		}); allocs != 0 {
+			t.Fatalf("%s bound typed line must allocate 0 times/op, got %.2f", name, allocs)
+		}
+	}
+}
+
 // TestZeroAlloc_TypedRealAdapter guards the typed builder's construct-and-dispatch
 // path (inline 1-4 fields and the pooled >4 path) against heap escape.
 func TestZeroAlloc_TypedRealAdapter(t *testing.T) {
