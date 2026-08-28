@@ -17,101 +17,15 @@
 package types
 
 import (
-	"context"
 	"time"
 )
 
-// CoreLogger defines the interface for the core logger implementation.
-// This interface provides the complete API surface for logging operations.
-//
-//nolint:interfacebloat // Complete hot-path logging API surface; splitting would fragment the public contract.
-type CoreLogger interface {
-	// Core logging methods
-	Trace(msg string) CoreLogger
-	Debug(msg string) CoreLogger
-	Info(msg string) CoreLogger
-	Warn(msg string) CoreLogger
-	Error(msg string, err error) CoreLogger
-	Fatal(msg string) CoreLogger
-	Panic(msg string) CoreLogger
-
-	// Context-aware logging
-	TraceContext(ctx context.Context, msg string) CoreLogger
-	DebugContext(ctx context.Context, msg string) CoreLogger
-	InfoContext(ctx context.Context, msg string) CoreLogger
-	WarnContext(ctx context.Context, msg string) CoreLogger
-	ErrorContext(ctx context.Context, msg string, err error) CoreLogger
-	FatalContext(ctx context.Context, msg string) CoreLogger
-	PanicContext(ctx context.Context, msg string) CoreLogger
-
-	// Field builders - fluent API
-	WithField(key string, value interface{}) CoreLogger
-	WithFields(fields map[string]interface{}) CoreLogger
-	WithTypedField(field TypedFieldData) CoreLogger
-	WithTypedFields(fields []TypedFieldData) CoreLogger
-	WithStyledFields(fields ...*StyledField) CoreLogger
-	WithError(err error) CoreLogger
-	WithAutoComponent() CoreLogger
-
-	// Field management
-	WithStrategy(strategy FieldStrategy) CoreLogger
-	WithCaller(skip int) CoreLogger
-	WithCallerSkip(skip int) CoreLogger
-	WithContext(ctx context.Context) CoreLogger
-	WithUserID(userID interface{}) CoreLogger
-	WithRequestID(requestID string) CoreLogger
-	WithDuration(duration time.Duration) CoreLogger
-
-	// Masking and security
-	MaskField(fieldName string) CoreLogger
-	MaskFields(fieldNames ...string) CoreLogger
-	AutoMask() CoreLogger
-
-	// Sampling and rate limiting
-	SampleSuccess(rate float64) CoreLogger
-	WithSampling(rate float64, filter func(*LogEntry) bool) CoreLogger
-	WithRateLimit(maxPerSecond int) CoreLogger
-
-	// Styling and formatting
-	Colorize() CoreLogger
-	ColorizeWith(options ColorOptions) CoreLogger
-	PrettyPrint() CoreLogger
-	PrettyPrintWith(options PrettyOptions) CoreLogger
-	HighlightField(fieldName string) CoreLogger
-
-	// Formatted logging
-	Tracef(format string, args ...interface{}) CoreLogger
-	Debugf(format string, args ...interface{}) CoreLogger
-	Infof(format string, args ...interface{}) CoreLogger
-	Warnf(format string, args ...interface{}) CoreLogger
-	Errorf(format string, args ...interface{}) CoreLogger
-	Fatalf(format string, args ...interface{}) CoreLogger
-	Panicf(format string, args ...interface{}) CoreLogger
-
-	// Output destinations
-	ToConsole() CoreLogger
-	ToFile(path string) CoreLogger
-	ToFileAsync(path string, options ...OutputOption) CoreLogger
-	ToMultiple(outputs ...Output) CoreLogger
-
-	// Metrics integration
-	WithMetric(name string, value interface{}, tags ...string) CoreLogger
-
-	// Features - all included in single interface
-	WithHook(hook LogHook) CoreLogger
-	AddOutput(output LogOutput) CoreLogger
-	RemoveOutput(output LogOutput) CoreLogger
-
-	// Configuration (aligned with unified Logger)
-	SetLevel(level LogLevel)
-	GetLevel() LogLevel
-	IsLevelEnabled(level LogLevel) bool
-	SetComponent(component string)
-	GetName() string
-
-	// Engine introspection (aligned with unified Logger)
-	GetEngine() interface{} // Returns internal engine (implementation specific)
-}
+// NOTE: a 60-method `CoreLogger` god-interface used to live here, promising
+// an API (Colorize, Tracef, ToFile, WithUserID, …) that nothing implemented
+// and nothing referenced. It was removed outright — the real public surface
+// is the concrete core.Logger and its fluent builders; adapters and
+// transforms are typed by the small, purpose-built interfaces in this
+// package (Adapter, Formatter, Sampler, PIIMasker, …).
 
 // LogHook represents a logging hook interface
 type LogHook interface {
