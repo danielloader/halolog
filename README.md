@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/halolog-logo.svg" alt="The HaloLog mark: a glowing halo ring" width="140">
+</p>
+
 # HaloLog
 
 [![Go Version](https://img.shields.io/badge/go-1.24+-blue.svg)](https://golang.org/)
