@@ -167,7 +167,7 @@ find each with `git log --oneline --grep`.
    the sweep on Windows as well.
 
 Byte output is unchanged (pinned by direct-vs-capture identity tests) and every
-hot path stays 0 allocs/op under 7 committed allocation guards
+hot path stays 0 allocs/op under 8 committed allocation guards
 (`go test ./core -run TestZeroAlloc`).
 
 What phuslu still does differently: no write mutex (interleaving possible), no
@@ -175,6 +175,19 @@ key escaping (fast but unsafe for arbitrary keys), and per-line timestamp
 formatting (~a third of their bare-message cost — HaloLog's fused per-second
 header cache makes the same work a single memcpy, which is where the 2.6×
 bare-message margin comes from).
+
+## Why the escape scan is SWAR, not SIMD (measured)
+
+The `simd-prep` branch carries a complete escape scanner on Go 1.27's
+experimental portable SIMD (`GOEXPERIMENT=simd`), proven byte-identical to
+the shipped scanner by exhaustive oracles and a fuzz target. Measured on
+windows/amd64, it **loses** to the shipped SWAR scan: 92.9 vs 16.5 ns on an
+80-byte clean string (5.6×) and 231 vs 191 ns on 1 KiB. The portable layer
+has no any-lane reduction primitive yet, so the per-block mask check must
+round-trip mask → lane bytes → uint64 words → memory → scalar OR, which
+swamps the vector win at log-line sizes. The branch exists to re-measure
+each Go release; SIMD graduates only if it beats SWAR on realistic payloads
+with the experiment flag gone.
 
 ## Reproduce
 
