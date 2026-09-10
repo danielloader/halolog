@@ -35,8 +35,12 @@ All notable changes to HaloLog are documented here. This project adheres to
   through `Write` and `Health` instead of panicking inside the logging call.
   Per-shape allocation budgets are measured and gated by
   `TestAdapter_AllocationBudgets` (0 allocs up to five attributes; 2 for a
-  correlated record's span context). End-to-end tests run the real
-  `sdk/log` pipeline and assert what an exporter receives. The adapter owns no lifecycle: flushing
+  correlated record's span context), and a severity the SDK drops pays for
+  nothing beyond the `Enabled` probe, whatever the entry's shape. `Flush` and
+  `Close` drain the provider through `ForceFlush` — `Fatal` flushes and exits
+  from inside the logging call, so a no-op flush would lose the last line a
+  program writes — but never `Shutdown` it, which stays the caller's. End-to-end
+  tests run the real `sdk/log` pipeline and assert what an exporter receives. The adapter owns no lifecycle: flushing
   and shutdown stay with the `LoggerProvider`. Adds
   `go.opentelemetry.io/otel/log` to the `otelbridge` module only; the core
   logger's dependencies are unchanged.
@@ -50,6 +54,14 @@ All notable changes to HaloLog are documented here. This project adheres to
   reading typed storage first see the unmasked value.
   `otelbridge.TestAdapter_RegexMaskingReachesAttributes` skips while this
   holds and starts passing once it is fixed.
+- **The JSON formatter exports masked fields in clear.** `appendValue` reads
+  `TypedFieldData.Val` before `Value`, the inverse of the precedence the
+  masker writes with, so a field masked through the typed or bound-context
+  builders still reaches stderr unmasked — only the interface-boxed builder
+  is safe. Same root cause as the gap above, opposite symptom, and it means
+  the documented console+OTLP pairing currently masks on one half only.
+  `otelbridge.TestFanout_ConsoleAndOTelAgreeOnMaskedValues` skips with the
+  leaking line in its output while this holds.
 
 ## [1.0.1] - 2026-08-28
 

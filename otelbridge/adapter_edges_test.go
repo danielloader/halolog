@@ -283,3 +283,68 @@ func TestAdapter_CorrelationReadsTheResolvedValue(t *testing.T) {
 		t.Fatalf("TraceID = %s, want %s", id, testTraceHex)
 	}
 }
+
+// Correlation and attributes walk one iterator, so a trace id correlates from
+// whichever storage form carries it. Walking different subsets meant a
+// trace_id in context storage became a plain attribute and never reached the
+// record.
+func TestAdapter_CorrelatesFromEveryStorageForm(t *testing.T) {
+	corr := []types.TypedFieldData{
+		{Key: keyTraceID.Name, Val: types.StringValue(testTraceHex)},
+		{Key: keySpanID.Name, Val: types.StringValue(testSpanHex)},
+	}
+
+	cases := []struct {
+		name  string
+		place func(*types.LogEntry)
+	}{
+		{"dynamic fields", func(e *types.LogEntry) { e.Fields = corr }},
+		{"context fields", func(e *types.LogEntry) { e.Context = corr }},
+		{
+			name: "static fields",
+			place: func(e *types.LogEntry) {
+				e.StaticFields = append([]types.TypedFieldData(nil), corr...)
+				e.StaticFieldCount = len(corr)
+			},
+		},
+		{
+			name: "static context",
+			place: func(e *types.LogEntry) {
+				e.StaticContext = append([]types.TypedFieldData(nil), corr...)
+				e.StaticContextCount = len(corr)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := &types.LogEntry{Level: types.InfoLevel, Message: "placed"}
+			tc.place(entry)
+
+			got := emitEntry(t, entry)
+			if id := got.span.TraceID().String(); id != testTraceHex {
+				t.Fatalf("TraceID = %s, want %s — correlation missed this storage form", id, testTraceHex)
+			}
+			if n := len(attrPairs(got)); n != 0 {
+				t.Fatalf("correlation fields left behind as attributes: %v", attrPairs(got))
+			}
+		})
+	}
+}
+
+// The JSON formatter suppresses the caller for a negative line; exporting
+// code.line.number: -1 would put a location on the record that no source file
+// has.
+func TestAdapter_NegativeLineSuppressesTheCaller(t *testing.T) {
+	entry := entryWithFields()
+	entry.File = "pay.go"
+	entry.Line = -1
+
+	attrs := emitEntry(t, entry).attrs()
+	if _, ok := attrs[attrLineNo]; ok {
+		t.Fatalf("negative line was exported: %v", attrs)
+	}
+	if _, ok := attrs[attrFilePath]; ok {
+		t.Fatalf("file path exported without a usable line: %v", attrs)
+	}
+}

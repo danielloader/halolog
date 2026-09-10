@@ -90,11 +90,19 @@ const (
 //	correlated (Bind)                  2 allocs, for the span context
 //
 // A real SDK adds its own cost on top: these are the adapter's, not the
-// export pipeline's. Severities the SDK drops cost nothing beyond the
-// Enabled check.
+// export pipeline's. A severity the SDK drops costs nothing beyond the
+// Enabled probe, whatever the entry's shape — the probe runs before any of
+// the work above.
 type Adapter struct {
-	logger otellog.Logger
-	name   string
+	logger   otellog.Logger
+	provider otellog.LoggerProvider
+	name     string
+}
+
+// forceFlusher is the drain method a LoggerProvider may offer.
+// sdklog.LoggerProvider has it; the API interface does not require it.
+type forceFlusher interface {
+	ForceFlush(context.Context) error
 }
 
 type adapterConfig struct {
@@ -108,8 +116,9 @@ type adapterConfig struct {
 type Option func(*adapterConfig)
 
 // WithLoggerProvider sets the provider the adapter draws its Logger from.
-// Without it the adapter uses the global provider resolved at construction
-// time, so install the provider before building the logger.
+// Without it the adapter uses the global provider, which delegates — a
+// provider installed with global.SetLoggerProvider after the adapter is built
+// still receives its records.
 func WithLoggerProvider(provider otellog.LoggerProvider) Option {
 	return func(c *adapterConfig) {
 		if provider != nil {
@@ -157,7 +166,11 @@ func NewAdapter(scopeName string, opts ...Option) *Adapter {
 	if cfg.schemaURL != "" {
 		logOpts = append(logOpts, otellog.WithSchemaURL(cfg.schemaURL))
 	}
-	return &Adapter{logger: cfg.provider.Logger(scopeName, logOpts...), name: cfg.name}
+	return &Adapter{
+		logger:   cfg.provider.Logger(scopeName, logOpts...),
+		provider: cfg.provider,
+		name:     cfg.name,
+	}
 }
 
 // Name returns the adapter's registry name.
@@ -186,20 +199,33 @@ func (a *Adapter) Write(entry *types.LogEntry) error {
 // so there is no cheaper variant to offer here — it is Write.
 func (a *Adapter) WriteZero(entry *types.LogEntry) error { return a.Write(entry) }
 
-// Flush is a no-op: buffering and export belong to the SDK's processor. Call
-// ForceFlush on the LoggerProvider to drain pending records.
-func (a *Adapter) Flush() error { return nil }
+// Flush drains the provider, when it offers ForceFlush.
+//
+// This cannot be a no-op. Logger.Fatal writes its line, calls Logger.Flush,
+// and exits the process from inside the logging call — so a batching
+// processor's queue is the last place the most important line in the program
+// can be, and the caller never gets a chance to drain it itself.
+func (a *Adapter) Flush() error {
+	f, ok := a.provider.(forceFlusher)
+	if !ok {
+		return nil
+	}
+	return f.ForceFlush(context.Background())
+}
 
-// Close is a no-op: the LoggerProvider owns the exporter's lifetime. Call
-// Shutdown on it to flush and release the export pipeline.
-func (a *Adapter) Close() error { return nil }
+// Close drains the provider but does not shut it down. The provider belongs
+// to the caller and is usually shared with tracing, so Shutdown stays theirs
+// to call; closing one adapter must not tear down everyone's pipeline.
+func (a *Adapter) Close() error { return a.Flush() }
 
 // SetFormatter is a no-op. Records carry structured attributes to the SDK,
 // which serializes them; a text/JSON formatter has nothing to do here.
 func (a *Adapter) SetFormatter(types.Formatter) {}
 
-// Health reports the adapter healthy whenever it holds a Logger. Export
-// failures surface through the SDK's error handler, not here.
+// Health reports the adapter healthy whenever it holds a Logger. It says
+// nothing about the pipeline behind it: a no-op provider is healthy and
+// exports nothing, and export failures surface through the SDK's error
+// handler rather than here.
 func (a *Adapter) Health() error {
 	if a.logger == nil {
 		return types.ErrAdapterClosed
@@ -214,13 +240,19 @@ func (a *Adapter) Health() error {
 // Every value copied here is owned by the record before Emit returns: the
 // caller's LogEntry goes straight back to the pool.
 func (a *Adapter) build(entry *types.LogEntry) (context.Context, otellog.Record, bool) {
-	sev := severityOf(entry.Level)
-	ctx, consumed := a.spanContext(entry)
-
 	var rec otellog.Record
-	if !a.logger.Enabled(ctx, otellog.EnabledParameters{Severity: sev}) {
-		return ctx, rec, false
+	sev := severityOf(entry.Level)
+
+	// Probe first, so a severity the SDK drops pays for nothing. The probe
+	// carries no span: the adapter has no caller context, and reconstructing
+	// one from the entry is the very work being skipped. A processor that
+	// filters on span state therefore sees severity alone here — the emitted
+	// record below still carries the full span context.
+	if !a.logger.Enabled(context.Background(), otellog.EnabledParameters{Severity: sev}) {
+		return context.Background(), rec, false
 	}
+
+	ctx, consumed := a.spanContext(entry)
 
 	// ObservedTimestamp is deliberately left unset: the SDK stamps it at Emit,
 	// which is a truer observation time than HaloLog's cached clock (up to
@@ -264,9 +296,10 @@ func entryTime(entry *types.LogEntry) time.Time {
 // missing or malformed still correlates — the log lands on the trace, just not
 // on a span. A span id alone is meaningless and does not correlate.
 //
-// Only the fields that actually parsed are reported as consumed: a malformed
-// one stays in the attributes, where it is visible to whoever has to debug it
-// rather than silently dropped.
+// A correlation key that never parsed is reported unconsumed and stays in the
+// attributes, visible to whoever has to debug it rather than silently dropped.
+// Consumption is tracked per key, not per occurrence, so where one key appears
+// twice and only one parses, both are consumed and the last parsed value wins.
 func (a *Adapter) spanContext(entry *types.LogEntry) (context.Context, uint8) {
 	var (
 		cfg      trace.SpanContextConfig
@@ -310,8 +343,10 @@ func (a *Adapter) spanContext(entry *types.LogEntry) (context.Context, uint8) {
 // A logged field wins over the metadata the adapter would derive under the
 // same key — a field named "component" or "error" is the more specific value,
 // and emitting both would put two attributes with one key on the record, which
-// the data model leaves undefined. Fields with no key at all are dropped for
-// the same reason: an empty attribute key is not valid.
+// the data model leaves undefined. The guard covers the derived keys only:
+// two logged fields sharing a key are passed through as the caller wrote them,
+// and the SDK deduplicates. Fields with no key at all are dropped, because an
+// empty attribute key is not valid.
 //
 // Neither GetAllFields nor GetAllContext is used — both build a merged slice
 // per call, which is an allocation this path can avoid by walking the three
@@ -342,12 +377,6 @@ func (a *Adapter) attributes(dst []otellog.KeyValue, entry *types.LogEntry, cons
 	}
 
 	forEachField(entry, add)
-	for i := 0; i < entry.StaticContextCount && i < len(entry.StaticContext); i++ {
-		add(fieldName(entry.StaticContext[i]), entry.StaticContext[i])
-	}
-	for _, f := range entry.Context {
-		add(fieldName(f), f)
-	}
 
 	if entry.Component != "" && claimed&bitComponent == 0 {
 		dst = append(dst, otellog.String(attrComponent, entry.Component))
@@ -355,7 +384,9 @@ func (a *Adapter) attributes(dst []otellog.KeyValue, entry *types.LogEntry, cons
 	if msg := errorMessage(entry); msg != "" && claimed&bitError == 0 {
 		dst = append(dst, otellog.String(attrError, msg))
 	}
-	if entry.File != "" {
+	// The JSON formatter suppresses the caller unless Line >= 0; match it
+	// rather than exporting a line number no source file has.
+	if entry.File != "" && entry.Line >= 0 {
 		if claimed&bitFilePath == 0 {
 			dst = append(dst, otellog.String(attrFilePath, entry.File))
 		}
@@ -383,14 +414,26 @@ func derivedKeyBit(key string) uint8 {
 	}
 }
 
-// forEachField walks the entry's static, dynamic, and indexed field storage in
-// the order a formatter would, without the merged slice GetAllFields allocates.
+// forEachField walks every field the entry carries — static, dynamic, indexed,
+// and context — in the order a formatter would, without the merged slices
+// GetAllFields and GetAllContext allocate.
+//
+// Correlation and attributes share this one iterator deliberately: walking
+// different subsets meant a trace_id in context storage was emitted as a plain
+// attribute and never became the record's TraceID.
 func forEachField(entry *types.LogEntry, fn func(key string, f types.TypedFieldData)) {
 	for i := 0; i < entry.StaticFieldCount && i < len(entry.StaticFields); i++ {
 		f := entry.StaticFields[i]
 		fn(fieldName(f), f)
 	}
 	for _, f := range entry.Fields {
+		fn(fieldName(f), f)
+	}
+	for i := 0; i < entry.StaticContextCount && i < len(entry.StaticContext); i++ {
+		f := entry.StaticContext[i]
+		fn(fieldName(f), f)
+	}
+	for _, f := range entry.Context {
 		fn(fieldName(f), f)
 	}
 	// Iterate, not GetAll: the snapshot helper appends into a fresh slice on

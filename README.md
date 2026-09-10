@@ -253,9 +253,12 @@ ceilings by `TestAdapter_AllocationBudgets`:
 A real SDK adds its own cost on top; those are the adapter's own. Severities
 the SDK drops cost nothing beyond the `Enabled` check.
 
-The adapter owns no lifecycle: `Flush` and `Close` are no-ops, because
-draining and shutting down the export pipeline are `ForceFlush` and
-`Shutdown` on the `LoggerProvider`.
+`Flush` and `Close` drain the provider through its `ForceFlush`. That is not
+a convenience: `Fatal` writes its line, calls `Logger.Flush`, and exits the
+process from inside the logging call, so a batching processor's queue would
+otherwise swallow the last line a program ever writes. Neither method shuts
+the provider down — it belongs to the caller and is usually shared with
+tracing, so `Shutdown` stays theirs to call.
 
 ### Timestamp precision
 

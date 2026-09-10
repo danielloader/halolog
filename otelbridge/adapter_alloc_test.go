@@ -119,13 +119,24 @@ func TestAdapter_AllocationBudgets(t *testing.T) {
 	}
 }
 
-// A dropped severity must not pay for attribute conversion.
-func TestAdapter_DisabledSeverityCostsNothingExtra(t *testing.T) {
+// A dropped severity must not pay for any per-entry work — including the
+// correlation walk, which is the shape a Bind-ed request logger produces and
+// the one an uncorrelated entry cannot exercise.
+func TestAdapter_DisabledSeverityCostsNothing(t *testing.T) {
 	a := NewAdapter("halolog/otelbridge_bench", WithLoggerProvider(&recorder{disableAll: true}))
-	entry := entryWith(9)
 
-	if got := testing.AllocsPerRun(200, func() { _ = a.Write(entry) }); got > 1 {
-		t.Fatalf("%.1f allocs/op for a record the SDK drops, want at most 1", got)
+	for _, tc := range []struct {
+		name  string
+		entry *types.LogEntry
+	}{
+		{"uncorrelated", entryWith(9)},
+		{"correlated", correlatedEntry()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := testing.AllocsPerRun(200, func() { _ = a.Write(tc.entry) }); got != 0 {
+				t.Fatalf("%.1f allocs/op for a record the SDK drops, want 0", got)
+			}
+		})
 	}
 }
 
