@@ -52,6 +52,31 @@ const DefaultAdapterName = "otel"
 // staging buffer is never the first thing to cost an allocation.
 const attrStackCap = 8
 
+// Attribute keys the adapter derives from entry metadata rather than from a
+// logged field. A field of the same name takes precedence — see attributes.
+const (
+	attrComponent = "component"
+	attrError     = "error"
+	attrFilePath  = "code.file.path"
+	attrLineNo    = "code.line.number"
+)
+
+// Bits recording which derived keys a logged field already claimed.
+const (
+	bitComponent uint8 = 1 << iota
+	bitError
+	bitFilePath
+	bitLineNo
+)
+
+// Bits recording which correlation fields were consumed into the record's own
+// trace context and so must not be repeated as attributes.
+const (
+	bitTraceID uint8 = 1 << iota
+	bitSpanID
+	bitTraceFlags
+)
+
 // Adapter emits HaloLog entries as OpenTelemetry log records. It satisfies
 // types.Adapter, so it composes with every other output through the logger's
 // normal adapter fan-out.
@@ -143,6 +168,12 @@ func (a *Adapter) Write(entry *types.LogEntry) error {
 	if entry == nil {
 		return nil
 	}
+	// A LoggerProvider is free to hand back a nil Logger; emitting into it
+	// would panic inside the logging call, which is the one place a logger
+	// must never take the program down.
+	if a.logger == nil {
+		return types.ErrAdapterClosed
+	}
 	ctx, rec, ok := a.build(entry)
 	if !ok {
 		return nil
@@ -184,7 +215,7 @@ func (a *Adapter) Health() error {
 // caller's LogEntry goes straight back to the pool.
 func (a *Adapter) build(entry *types.LogEntry) (context.Context, otellog.Record, bool) {
 	sev := severityOf(entry.Level)
-	ctx := a.spanContext(entry)
+	ctx, consumed := a.spanContext(entry)
 
 	var rec otellog.Record
 	if !a.logger.Enabled(ctx, otellog.EnabledParameters{Severity: sev}) {
@@ -204,7 +235,7 @@ func (a *Adapter) build(entry *types.LogEntry) (context.Context, otellog.Record,
 	// One AddAttributes call, not one per attribute: past the record's inline
 	// capacity each call grows the overflow slice again.
 	var stack [attrStackCap]otellog.KeyValue
-	rec.AddAttributes(a.attributes(stack[:0], entry)...)
+	rec.AddAttributes(a.attributes(stack[:0], entry, consumed)...)
 	return ctx, rec, true
 }
 
@@ -220,17 +251,26 @@ func entryTime(entry *types.LogEntry) time.Time {
 	return entry.Timestamp
 }
 
-// spanContext rebuilds the span the entry was logged under. The adapter
-// interface passes no context.Context, so the only trace information available
-// is what Bind already stamped onto the entry as fields — re-parsing those hex
-// strings is what puts a real TraceID on the record instead of a pair of
-// attributes the backend cannot correlate on.
-func (a *Adapter) spanContext(entry *types.LogEntry) context.Context {
+// spanContext rebuilds the span the entry was logged under, and reports which
+// correlation fields it consumed. The adapter interface passes no
+// context.Context, so the only trace information available is what Bind
+// already stamped onto the entry as fields — re-parsing those hex strings is
+// what puts a real TraceID on the record instead of a pair of attributes the
+// backend cannot correlate on.
+//
+// A valid trace id is the whole requirement. The data model allows a record
+// that names its trace without naming a span, and the SDK copies the trace
+// context out of ctx without checking validity, so a trace id whose span id is
+// missing or malformed still correlates — the log lands on the trace, just not
+// on a span. A span id alone is meaningless and does not correlate.
+//
+// Only the fields that actually parsed are reported as consumed: a malformed
+// one stays in the attributes, where it is visible to whoever has to debug it
+// rather than silently dropped.
+func (a *Adapter) spanContext(entry *types.LogEntry) (context.Context, uint8) {
 	var (
-		traceID trace.TraceID
-		spanID  trace.SpanID
-		flags   trace.TraceFlags
-		found   bool
+		cfg      trace.SpanContextConfig
+		consumed uint8
 	)
 	forEachField(entry, func(key string, f types.TypedFieldData) {
 		hex, ok := stringOf(f)
@@ -240,64 +280,107 @@ func (a *Adapter) spanContext(entry *types.LogEntry) context.Context {
 		switch key {
 		case keyTraceID.Name:
 			if id, err := trace.TraceIDFromHex(hex); err == nil {
-				traceID, found = id, true
+				cfg.TraceID, consumed = id, consumed|bitTraceID
 			}
 		case keySpanID.Name:
 			if id, err := trace.SpanIDFromHex(hex); err == nil {
-				spanID = id
+				cfg.SpanID, consumed = id, consumed|bitSpanID
 			}
 		case keyTraceFlags.Name:
 			if v, err := strconv.ParseUint(hex, 16, 8); err == nil {
-				flags = trace.TraceFlags(v)
+				cfg.TraceFlags, consumed = trace.TraceFlags(v), consumed|bitTraceFlags
 			}
 		}
 	})
-	if !found {
-		return context.Background()
+
+	if consumed&bitTraceID == 0 {
+		return context.Background(), 0
 	}
-	return trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID:    traceID,
-		SpanID:     spanID,
-		TraceFlags: flags,
-	}))
+	return trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(cfg)), consumed
 }
 
 // attributes appends the entry's fields, context, component, error, and source
-// location to dst. The correlation fields are skipped: they are already the
-// record's TraceID and SpanID, and re-emitting them as attributes would have
-// the backend index the same value twice.
+// location to dst.
+//
+// The correlation fields consumed into the record's trace context are skipped:
+// they are already its TraceID and SpanID, and re-emitting them as attributes
+// would have the backend index the same value twice. One that did not parse
+// was not consumed, and stays.
+//
+// A logged field wins over the metadata the adapter would derive under the
+// same key — a field named "component" or "error" is the more specific value,
+// and emitting both would put two attributes with one key on the record, which
+// the data model leaves undefined. Fields with no key at all are dropped for
+// the same reason: an empty attribute key is not valid.
 //
 // Neither GetAllFields nor GetAllContext is used — both build a merged slice
 // per call, which is an allocation this path can avoid by walking the three
 // storage forms directly.
-func (a *Adapter) attributes(dst []otellog.KeyValue, entry *types.LogEntry) []otellog.KeyValue {
-	forEachField(entry, func(key string, f types.TypedFieldData) {
-		switch key {
-		case keyTraceID.Name, keySpanID.Name, keyTraceFlags.Name:
+func (a *Adapter) attributes(dst []otellog.KeyValue, entry *types.LogEntry, consumed uint8) []otellog.KeyValue {
+	var claimed uint8
+
+	add := func(key string, f types.TypedFieldData) {
+		if key == "" {
 			return
 		}
+		switch key {
+		case keyTraceID.Name:
+			if consumed&bitTraceID != 0 {
+				return
+			}
+		case keySpanID.Name:
+			if consumed&bitSpanID != 0 {
+				return
+			}
+		case keyTraceFlags.Name:
+			if consumed&bitTraceFlags != 0 {
+				return
+			}
+		}
+		claimed |= derivedKeyBit(key)
 		dst = append(dst, otellog.KeyValue{Key: key, Value: logValue(f)})
-	})
+	}
+
+	forEachField(entry, add)
 	for i := 0; i < entry.StaticContextCount && i < len(entry.StaticContext); i++ {
-		f := entry.StaticContext[i]
-		dst = append(dst, otellog.KeyValue{Key: fieldName(f), Value: logValue(f)})
+		add(fieldName(entry.StaticContext[i]), entry.StaticContext[i])
 	}
 	for _, f := range entry.Context {
-		dst = append(dst, otellog.KeyValue{Key: fieldName(f), Value: logValue(f)})
+		add(fieldName(f), f)
 	}
-	if entry.Component != "" {
-		dst = append(dst, otellog.String("component", entry.Component))
+
+	if entry.Component != "" && claimed&bitComponent == 0 {
+		dst = append(dst, otellog.String(attrComponent, entry.Component))
 	}
-	if msg := errorMessage(entry); msg != "" {
-		dst = append(dst, otellog.String("error", msg))
+	if msg := errorMessage(entry); msg != "" && claimed&bitError == 0 {
+		dst = append(dst, otellog.String(attrError, msg))
 	}
 	if entry.File != "" {
-		dst = append(dst,
-			otellog.String("code.file.path", entry.File),
-			otellog.Int("code.line.number", entry.Line),
-		)
+		if claimed&bitFilePath == 0 {
+			dst = append(dst, otellog.String(attrFilePath, entry.File))
+		}
+		if claimed&bitLineNo == 0 {
+			dst = append(dst, otellog.Int(attrLineNo, entry.Line))
+		}
 	}
 	return dst
+}
+
+// derivedKeyBit marks a logged field as having claimed one of the keys the
+// adapter would otherwise derive from entry metadata.
+func derivedKeyBit(key string) uint8 {
+	switch key {
+	case attrComponent:
+		return bitComponent
+	case attrError:
+		return bitError
+	case attrFilePath:
+		return bitFilePath
+	case attrLineNo:
+		return bitLineNo
+	default:
+		return 0
+	}
 }
 
 // forEachField walks the entry's static, dynamic, and indexed field storage in
@@ -319,19 +402,15 @@ func forEachField(entry *types.LogEntry, fn func(key string, f types.TypedFieldD
 	}
 }
 
-// stringOf reads a field as a string from whichever of the two storage forms
-// holds it, so correlation works whether the caller used a typed setter or the
-// interface-boxed WithField path.
+// stringOf reads a field as a string through logValue, so correlation sees
+// exactly the value the record would carry — whichever storage form holds it,
+// and including a masker's rewrite.
 func stringOf(f types.TypedFieldData) (string, bool) {
-	if f.Val.Kind == types.KindString {
-		return f.Val.String, true
+	v := logValue(f)
+	if v.Kind() != otellog.KindString {
+		return "", false
 	}
-	if f.Val.Kind == types.KindUnknown {
-		if s, ok := f.Value.(string); ok {
-			return s, true
-		}
-	}
-	return "", false
+	return v.AsString(), true
 }
 
 // fieldName resolves a field's key from either the plain string or the

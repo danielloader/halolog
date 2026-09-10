@@ -25,9 +25,18 @@ All notable changes to HaloLog are documented here. This project adheres to
   Unsigned values above `math.MaxInt64` emit as exact decimal strings rather
   than wrapping negative, and `[]byte` attributes are copied, because
   `log.BytesValue` retains the caller's array while records outlive the call.
+  Correlation is consumed per field: a valid trace id is the only requirement
+  (the data model allows a record that names its trace but no span), and a
+  field that fails to parse is left in the attributes rather than dropped.
+  A logged field wins over metadata the adapter would derive under the same
+  key, so `component`, `error`, and the source-location keys never appear
+  twice on one record; fields with no key are dropped rather than emitted
+  under `""`. A `LoggerProvider` handing back a nil `Logger` is reported
+  through `Write` and `Health` instead of panicking inside the logging call.
   Per-shape allocation budgets are measured and gated by
   `TestAdapter_AllocationBudgets` (0 allocs up to five attributes; 2 for a
-  correlated record's span context). The adapter owns no lifecycle: flushing
+  correlated record's span context). End-to-end tests run the real
+  `sdk/log` pipeline and assert what an exporter receives. The adapter owns no lifecycle: flushing
   and shutdown stay with the `LoggerProvider`. Adds
   `go.opentelemetry.io/otel/log` to the `otelbridge` module only; the core
   logger's dependencies are unchanged.

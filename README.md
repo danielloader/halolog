@@ -226,12 +226,19 @@ log.Typed().WithInt("status", 200).Info("handled")
 ```
 
 Fields, context, component, `error`, and the caller's file and line become
-record attributes; the level maps onto the OpenTelemetry severity scale.
+record attributes; the level maps onto the OpenTelemetry severity scale. A
+logged field wins over metadata the adapter would derive under the same key,
+so a field named `component` or `error` is never emitted twice.
+
 `Bind`'s correlation fields are consumed rather than copied: the adapter
 parses them back into a span context, so the record carries a real TraceID
 and SpanID — what a backend such as Honeycomb correlates on — instead of
-three attributes it cannot join against. Without a preceding `Bind` the
-record is emitted uncorrelated.
+three attributes it cannot join against. A valid trace id is the only
+requirement; the data model allows a record that names its trace without
+naming a span, so a trace id still correlates when the span id is absent.
+Anything that does not parse is not consumed and stays in the attributes,
+where it is still visible. Without a preceding `Bind` the record is emitted
+uncorrelated.
 
 Cost per emitted record, measured against a discarding logger and held as
 ceilings by `TestAdapter_AllocationBudgets`:
