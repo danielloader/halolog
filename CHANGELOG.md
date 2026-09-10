@@ -17,11 +17,30 @@ All notable changes to HaloLog are documented here. This project adheres to
   the record carries a real TraceID and SpanID — what a backend correlates on
   — rather than three attributes it cannot join against. Fields, context,
   component, error, and caller location become attributes; HaloLog levels map
-  onto the OpenTelemetry severity scale. Not a zero-allocation path (a
-  LogRecord is a structured object), and it owns no lifecycle: flushing and
-  shutdown stay with the `LoggerProvider`. Adds
+  onto the OpenTelemetry severity scale, and record timestamps resolve
+  `TimestampUnix` before the wall-clock `Timestamp`, matching the JSON
+  formatter — the hot path writes only the former, so the other order dates
+  every record to the zero time. Masked values win over the typed original a
+  masker replaced, so nothing the masker caught crosses the export boundary.
+  Unsigned values above `math.MaxInt64` emit as exact decimal strings rather
+  than wrapping negative, and `[]byte` attributes are copied, because
+  `log.BytesValue` retains the caller's array while records outlive the call.
+  Per-shape allocation budgets are measured and gated by
+  `TestAdapter_AllocationBudgets` (0 allocs up to five attributes; 2 for a
+  correlated record's span context). The adapter owns no lifecycle: flushing
+  and shutdown stay with the `LoggerProvider`. Adds
   `go.opentelemetry.io/otel/log` to the `otelbridge` module only; the core
   logger's dependencies are unchanged.
+
+### Known gaps
+- **Regex masking does not reach typed string values.** `maskFieldFast` reads
+  `TypedFieldData.Value` for its regex branch, which the typed builders leave
+  nil (their value is in `Val`), so regex rules silently skip every field set
+  through `Typed()`, `Line()`, or a bound context. Field-name rules do apply,
+  but write only `Value`, leaving `Val` holding the original — consumers
+  reading typed storage first see the unmasked value.
+  `otelbridge.TestAdapter_RegexMaskingReachesAttributes` skips while this
+  holds and starts passing once it is fixed.
 
 ## [1.0.1] - 2026-08-28
 

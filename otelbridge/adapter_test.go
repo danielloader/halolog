@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	jsonfmt "github.com/go-gen-ecosystem/halolog/adapters/formatters/json"
 	"github.com/go-gen-ecosystem/halolog/adapters/outputs/console"
@@ -45,6 +46,11 @@ type emitted struct {
 	record otellog.Record
 	span   trace.SpanContext
 }
+
+// The Record accessors take a pointer receiver, so these helpers exist to read
+// a record straight out of a returned value without a local variable first.
+func (e emitted) timestamp() time.Time { return e.record.Timestamp() }
+func (e emitted) body() string         { return e.record.Body().AsString() }
 
 func (e emitted) attrs() map[string]otellog.Value {
 	out := make(map[string]otellog.Value)

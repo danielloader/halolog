@@ -32,7 +32,9 @@ package otelbridge
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
+	"time"
 
 	"github.com/go-gen-ecosystem/halolog/types"
 	otellog "go.opentelemetry.io/otel/log"
@@ -43,14 +45,28 @@ import (
 // DefaultAdapterName is the adapter's registry name when WithName is not given.
 const DefaultAdapterName = "otel"
 
+// attrStackCap stages attributes in a stack array so building them adds no
+// allocation of its own up to this width; beyond it the slice spills to the
+// heap once. It is deliberately above log.Record's own 5-attribute inline
+// capacity — the record starts allocating before this buffer does, so the
+// staging buffer is never the first thing to cost an allocation.
+const attrStackCap = 8
+
 // Adapter emits HaloLog entries as OpenTelemetry log records. It satisfies
 // types.Adapter, so it composes with every other output through the logger's
 // normal adapter fan-out.
 //
-// The zero-allocation hot path stops here by construction: a LogRecord is a
-// structured object, not a byte slice, so each entry costs one Record plus its
-// attribute slice. Put it alongside a console adapter, not in place of one, and
-// keep the console adapter for the paths where the byte cost matters.
+// Cost per emitted record, measured against a discarding logger by
+// TestAdapter_AllocationBudgets (which holds these as ceilings):
+//
+//	up to 5 attributes                 0 allocs
+//	6+ attributes (past Record inline) 1 alloc
+//	9+ attributes (past the staging buffer) 2 allocs
+//	correlated (Bind)                  2 allocs, for the span context
+//
+// A real SDK adds its own cost on top: these are the adapter's, not the
+// export pipeline's. Severities the SDK drops cost nothing beyond the
+// Enabled check.
 type Adapter struct {
 	logger otellog.Logger
 	name   string
@@ -178,12 +194,30 @@ func (a *Adapter) build(entry *types.LogEntry) (context.Context, otellog.Record,
 	// ObservedTimestamp is deliberately left unset: the SDK stamps it at Emit,
 	// which is a truer observation time than HaloLog's cached clock (up to
 	// ~10ms of skew at the default refresh interval).
-	rec.SetTimestamp(entry.Timestamp)
+	if ts := entryTime(entry); !ts.IsZero() {
+		rec.SetTimestamp(ts)
+	}
 	rec.SetSeverity(sev)
 	rec.SetSeverityText(entry.Level.String())
 	rec.SetBody(otellog.StringValue(entry.Message))
-	a.addAttributes(&rec, entry)
+
+	// One AddAttributes call, not one per attribute: past the record's inline
+	// capacity each call grows the overflow slice again.
+	var stack [attrStackCap]otellog.KeyValue
+	rec.AddAttributes(a.attributes(stack[:0], entry)...)
 	return ctx, rec, true
+}
+
+// entryTime resolves the entry's timestamp the way the JSON formatter's
+// entryUnixNanos does — the hot path writes TimestampUnix and may leave the
+// wall-clock Timestamp zero, so preferring the other order dates records to
+// the zero time. A zero result means the entry carried no timestamp at all
+// and the SDK should stamp its own.
+func entryTime(entry *types.LogEntry) time.Time {
+	if entry.TimestampUnix != 0 {
+		return time.Unix(0, entry.TimestampUnix)
+	}
+	return entry.Timestamp
 }
 
 // spanContext rebuilds the span the entry was logged under. The adapter
@@ -228,33 +262,42 @@ func (a *Adapter) spanContext(entry *types.LogEntry) context.Context {
 	}))
 }
 
-// addAttributes copies the entry's fields, context, component, error, and
-// source location onto the record. The correlation fields are skipped: they
-// are already the record's TraceID and SpanID, and re-emitting them as
-// attributes would have the backend index the same value twice.
-func (a *Adapter) addAttributes(rec *otellog.Record, entry *types.LogEntry) {
+// attributes appends the entry's fields, context, component, error, and source
+// location to dst. The correlation fields are skipped: they are already the
+// record's TraceID and SpanID, and re-emitting them as attributes would have
+// the backend index the same value twice.
+//
+// Neither GetAllFields nor GetAllContext is used — both build a merged slice
+// per call, which is an allocation this path can avoid by walking the three
+// storage forms directly.
+func (a *Adapter) attributes(dst []otellog.KeyValue, entry *types.LogEntry) []otellog.KeyValue {
 	forEachField(entry, func(key string, f types.TypedFieldData) {
 		switch key {
 		case keyTraceID.Name, keySpanID.Name, keyTraceFlags.Name:
 			return
 		}
-		rec.AddAttributes(otellog.KeyValue{Key: key, Value: logValue(f)})
+		dst = append(dst, otellog.KeyValue{Key: key, Value: logValue(f)})
 	})
-	for _, f := range entry.GetAllContext() {
-		rec.AddAttributes(otellog.KeyValue{Key: fieldName(f), Value: logValue(f)})
+	for i := 0; i < entry.StaticContextCount && i < len(entry.StaticContext); i++ {
+		f := entry.StaticContext[i]
+		dst = append(dst, otellog.KeyValue{Key: fieldName(f), Value: logValue(f)})
+	}
+	for _, f := range entry.Context {
+		dst = append(dst, otellog.KeyValue{Key: fieldName(f), Value: logValue(f)})
 	}
 	if entry.Component != "" {
-		rec.AddAttributes(otellog.String("component", entry.Component))
+		dst = append(dst, otellog.String("component", entry.Component))
 	}
 	if msg := errorMessage(entry); msg != "" {
-		rec.AddAttributes(otellog.String("error", msg))
+		dst = append(dst, otellog.String("error", msg))
 	}
 	if entry.File != "" {
-		rec.AddAttributes(
+		dst = append(dst,
 			otellog.String("code.file.path", entry.File),
 			otellog.Int("code.line.number", entry.Line),
 		)
 	}
+	return dst
 }
 
 // forEachField walks the entry's static, dynamic, and indexed field storage in
@@ -267,10 +310,12 @@ func forEachField(entry *types.LogEntry, fn func(key string, f types.TypedFieldD
 	for _, f := range entry.Fields {
 		fn(fieldName(f), f)
 	}
+	// Iterate, not GetAll: the snapshot helper appends into a fresh slice on
+	// every call. Indexed values are always strings.
 	if entry.IndexedStore != nil {
-		for _, f := range entry.IndexedStore.GetAll() {
-			fn(fieldName(f), f)
-		}
+		entry.IndexedStore.Iterate(func(key, value string) {
+			fn(key, types.TypedFieldData{Key: key, Val: types.StringValue(value)})
+		})
 	}
 }
 
@@ -313,23 +358,28 @@ func errorMessage(entry *types.LogEntry) string {
 	return ""
 }
 
-// logValue converts a HaloLog field to its OpenTelemetry equivalent. The
-// typed storage wins when set; KindUnknown means the field arrived through the
-// interface-boxed path (WithField, type inference, masking) and its value
-// lives in Value instead.
+// logValue converts a HaloLog field to its OpenTelemetry equivalent.
+//
+// A non-nil Value alongside typed storage means something rewrote the field
+// after the builder set it, and masking is the only thing in the pipeline that
+// does. The rewrite wins: preferring the typed original here would export the
+// value the masker had just replaced, which on this boundary means shipping
+// the PII off the host.
 func logValue(f types.TypedFieldData) otellog.Value {
-	v := f.Val
-	switch v.Kind {
+	if f.Val.Kind != types.KindUnknown && f.Value != nil {
+		return anyValue(f.Value)
+	}
+	switch f.Val.Kind {
 	case types.KindString, types.KindError:
-		return otellog.StringValue(v.String)
+		return otellog.StringValue(f.Val.String)
 	case types.KindInt, types.KindInt64:
-		return otellog.Int64Value(v.Int64)
+		return otellog.Int64Value(f.Val.Int64)
 	case types.KindFloat64:
-		return otellog.Float64Value(v.Float64)
+		return otellog.Float64Value(f.Val.Float64)
 	case types.KindBool:
-		return otellog.BoolValue(v.Int64 != 0)
+		return otellog.BoolValue(f.Val.Int64 != 0)
 	case types.KindAny:
-		return anyValue(v.Any)
+		return anyValue(f.Val.Any)
 	case types.KindUnknown:
 		return anyValue(f.Value)
 	default:
@@ -337,6 +387,11 @@ func logValue(f types.TypedFieldData) otellog.Value {
 	}
 }
 
+// anyValue converts an interface-boxed value. Every fixed-width integer and
+// float narrows to the two widths the log API models (int64, float64), which
+// is lossless for all of them except uint64 above math.MaxInt64 — see
+// uintValue. Unhandled types render through fmt.Sprint, matching what the JSON
+// formatter does with the same value.
 func anyValue(v interface{}) otellog.Value {
 	switch t := v.(type) {
 	case nil:
@@ -346,18 +401,65 @@ func anyValue(v interface{}) otellog.Value {
 	case bool:
 		return otellog.BoolValue(t)
 	case int:
-		return otellog.IntValue(t)
+		return otellog.Int64Value(int64(t))
+	case int8:
+		return otellog.Int64Value(int64(t))
+	case int16:
+		return otellog.Int64Value(int64(t))
+	case int32:
+		return otellog.Int64Value(int64(t))
 	case int64:
 		return otellog.Int64Value(t)
+	case uint:
+		return uintValue(uint64(t))
+	case uint8:
+		return otellog.Int64Value(int64(t))
+	case uint16:
+		return otellog.Int64Value(int64(t))
+	case uint32:
+		return otellog.Int64Value(int64(t))
+	case uint64:
+		return uintValue(t)
+	case uintptr:
+		return uintValue(uint64(t))
+	case float32:
+		return otellog.Float64Value(float64(t))
 	case float64:
 		return otellog.Float64Value(t)
 	case []byte:
-		return otellog.BytesValue(t)
+		return bytesValue(t)
 	case error:
 		return otellog.StringValue(t.Error())
 	default:
 		return otellog.StringValue(fmt.Sprint(t))
 	}
+}
+
+// uintValue keeps unsigned values exact. The log API has no unsigned integer
+// kind, so anything above math.MaxInt64 would wrap to a negative number if it
+// were cast; those emit as an exact decimal string instead. The type of an
+// attribute therefore depends on its value near the top of the uint64 range —
+// deliberate, and the alternative is silently wrong numbers.
+func uintValue(v uint64) otellog.Value {
+	if v > math.MaxInt64 {
+		return otellog.StringValue(strconv.FormatUint(v, 10))
+	}
+	return otellog.Int64Value(int64(v))
+}
+
+// bytesValue copies the payload. log.BytesValue keeps a pointer to the
+// caller's array rather than copying it, so without this a caller reusing its
+// buffer after the logging call would rewrite an already-emitted record — and
+// records outlive the call, both in the SDK's batch queue and in this
+// adapter's contract that nothing survives into the pooled LogEntry. One
+// allocation per []byte attribute is the price of that guarantee.
+func bytesValue(v []byte) otellog.Value {
+	if v == nil {
+		return otellog.Value{}
+	}
+	owned := make([]byte, len(v))
+	copy(owned, v)
+	return otellog.BytesValue(owned)
 }
 
 // severityOf maps HaloLog levels onto the OpenTelemetry severity scale. Panic

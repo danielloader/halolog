@@ -233,11 +233,22 @@ and SpanID — what a backend such as Honeycomb correlates on — instead of
 three attributes it cannot join against. Without a preceding `Bind` the
 record is emitted uncorrelated.
 
-Two things this adapter is not. It is not zero-allocation: a LogRecord is a
-structured object, so every entry costs a record plus its attributes — pair
-it with a console adapter, do not replace one. And it owns no lifecycle:
-`Flush` and `Close` are no-ops, because draining and shutting down the
-export pipeline are `ForceFlush` and `Shutdown` on the `LoggerProvider`.
+Cost per emitted record, measured against a discarding logger and held as
+ceilings by `TestAdapter_AllocationBudgets`:
+
+| Record shape | allocs |
+| --- | --- |
+| up to 5 attributes | 0 |
+| 6+ attributes (past `log.Record`'s inline capacity) | 1 |
+| 9+ attributes (past the adapter's staging buffer) | 2 |
+| correlated through `Bind` | 2, for the span context |
+
+A real SDK adds its own cost on top; those are the adapter's own. Severities
+the SDK drops cost nothing beyond the `Enabled` check.
+
+The adapter owns no lifecycle: `Flush` and `Close` are no-ops, because
+draining and shutting down the export pipeline are `ForceFlush` and
+`Shutdown` on the `LoggerProvider`.
 
 ### Timestamp precision
 
