@@ -205,6 +205,40 @@ func handle(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+### Routing logs to OpenTelemetry
+
+`otelbridge.NewAdapter` is an output adapter that emits each entry into the
+OpenTelemetry Logs API, so the same line reaches an OTLP backend as a
+LogRecord while the console adapter keeps writing it to stderr. Register
+both and the logger fans out to each in turn:
+
+```go
+logger := core.New().
+    Adapters(
+        console.New(),
+        otelbridge.NewAdapter("github.com/acme/checkout",
+            otelbridge.WithLoggerProvider(provider)), // omit for the global provider
+    ).
+    MustBuild()
+
+log := otelbridge.Bind(r.Context(), logger)
+log.Typed().WithInt("status", 200).Info("handled")
+```
+
+Fields, context, component, `error`, and the caller's file and line become
+record attributes; the level maps onto the OpenTelemetry severity scale.
+`Bind`'s correlation fields are consumed rather than copied: the adapter
+parses them back into a span context, so the record carries a real TraceID
+and SpanID — what a backend such as Honeycomb correlates on — instead of
+three attributes it cannot join against. Without a preceding `Bind` the
+record is emitted uncorrelated.
+
+Two things this adapter is not. It is not zero-allocation: a LogRecord is a
+structured object, so every entry costs a record plus its attributes — pair
+it with a console adapter, do not replace one. And it owns no lifecycle:
+`Flush` and `Close` are no-ops, because draining and shutting down the
+export pipeline are `ForceFlush` and `Shutdown` on the `LoggerProvider`.
+
 ### Timestamp precision
 
 The JSON formatter renders whole seconds by default, which is the fastest

@@ -8,6 +8,21 @@ All notable changes to HaloLog are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+- **`otelbridge.NewAdapter` — logs out to OpenTelemetry.** An output adapter
+  emitting each entry into the OpenTelemetry Logs API, so a line can reach an
+  OTLP backend as a LogRecord while a console or file adapter keeps writing it
+  to stderr; register both and the logger's existing fan-out does the rest.
+  `Bind`'s `trace_id`/`span_id` fields are parsed back into a span context so
+  the record carries a real TraceID and SpanID — what a backend correlates on
+  — rather than three attributes it cannot join against. Fields, context,
+  component, error, and caller location become attributes; HaloLog levels map
+  onto the OpenTelemetry severity scale. Not a zero-allocation path (a
+  LogRecord is a structured object), and it owns no lifecycle: flushing and
+  shutdown stay with the `LoggerProvider`. Adds
+  `go.opentelemetry.io/otel/log` to the `otelbridge` module only; the core
+  logger's dependencies are unchanged.
+
 ## [1.0.1] - 2026-08-28
 
 First public release. (A `v1.0.0` tag was cut minutes earlier and retracted
