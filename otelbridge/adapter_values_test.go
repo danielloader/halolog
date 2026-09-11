@@ -134,8 +134,10 @@ func TestAdapter_NilByteSliceIsEmpty(t *testing.T) {
 	}
 }
 
-// A field the masker rewrote wins over the typed original; an untouched typed
-// field still reads from typed storage.
+// logValue's own precedence rule, tested directly on fields this test builds.
+// It asserts the adapter tolerates a value rewritten after the builder ran —
+// not that core stores it in any particular slot, so a repair that makes
+// either slot canonical leaves this passing.
 func TestLogValue_MaskedValueWinsOverTypedOriginal(t *testing.T) {
 	masked := types.TypedFieldData{
 		Key:   "password",

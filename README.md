@@ -243,21 +243,32 @@ uncorrelated.
 Cost per emitted record, measured against a discarding logger and held as
 ceilings by `TestAdapter_AllocationBudgets`:
 
-| Record shape | allocs |
-| --- | --- |
-| up to 5 attributes | 0 |
-| 6+ attributes (past `log.Record`'s inline capacity) | 1 |
-| 9+ attributes (past the adapter's staging buffer) | 2 |
-| correlated through `Bind` | 2, for the span context |
+| Record shape | ns/op | B/op | allocs |
+| --- | --- | --- | --- |
+| no fields | 61 | 0 | 0 |
+| up to 5 attributes | 200 | 0 | 0 |
+| 6+ attributes (past `log.Record`'s inline capacity) | 279 | 48 | 1 |
+| 9+ attributes (past the adapter's staging buffer) | 639 | 864 | 2 |
+| context fields | 154 | 0 | 0 |
+| indexed fields | 181 | 0 | 0 |
+| correlated through `Bind` | 317 | 128 | 2 |
 
-A real SDK adds its own cost on top; those are the adapter's own. Severities
-the SDK drops cost nothing beyond the `Enabled` check.
+A severity the SDK drops skips the attribute work but still pays for the
+span context: `Enabled` has to be asked under the same correlation context
+`Emit` would use, or a processor filtering on the sampled flag answers for a
+record that is not the one being emitted. A real SDK adds its own cost on
+top; those are the adapter's own.
 
 `Flush` and `Close` drain the provider through its `ForceFlush`. That is not
 a convenience: `Fatal` writes its line, calls `Logger.Flush`, and exits the
 process from inside the logging call, so a batching processor's queue would
-otherwise swallow the last line a program ever writes. Neither method shuts
-the provider down — it belongs to the caller and is usually shared with
+otherwise swallow the last line a program ever writes.
+
+The wait is bounded — `DefaultFlushTimeout` is 5s, `WithFlushTimeout` sets
+your own, and a non-positive value opts into waiting indefinitely. The bound
+is what stops a wedged exporter holding the process open: a drain that times
+out returns the error and lets `Fatal` reach its exit. Neither method shuts
+the provider down; it belongs to the caller and is usually shared with
 tracing, so `Shutdown` stays theirs to call.
 
 ### Timestamp precision

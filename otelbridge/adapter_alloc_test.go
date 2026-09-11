@@ -119,23 +119,40 @@ func TestAdapter_AllocationBudgets(t *testing.T) {
 	}
 }
 
-// A dropped severity must not pay for any per-entry work — including the
-// correlation walk, which is the shape a Bind-ed request logger produces and
-// the one an uncorrelated entry cannot exercise.
-func TestAdapter_DisabledSeverityCostsNothing(t *testing.T) {
+// A dropped severity must not pay for attribute conversion. It does still pay
+// for the span context, because Enabled has to see the same correlation
+// context Emit would — a processor filtering on the sampled flag answers
+// differently without it, and probing cheaply would drop records the pipeline
+// wanted. That cost is fixed, so the proof is that piling attributes onto a
+// dropped record does not add to it.
+func TestAdapter_DisabledSeverityPaysOnlyForCorrelation(t *testing.T) {
 	a := NewAdapter("halolog/otelbridge_bench", WithLoggerProvider(&recorder{disableAll: true}))
 
-	for _, tc := range []struct {
-		name  string
-		entry *types.LogEntry
+	wide := correlatedEntry()
+	for i := range 12 {
+		wide.Fields = append(wide.Fields, types.TypedFieldData{
+			Key: "extra" + strconv.Itoa(i),
+			Val: types.StringValue("value"),
+		})
+	}
+
+	cases := []struct {
+		name   string
+		entry  *types.LogEntry
+		budget float64
 	}{
-		{"uncorrelated", entryWith(9)},
-		{"correlated", correlatedEntry()},
-	} {
+		{"uncorrelated costs nothing", entryWith(9), 0},
+		{"correlated pays for its span context", correlatedEntry(), 2},
+		{"attributes add nothing to a dropped record", wide, 2},
+	}
+
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := testing.AllocsPerRun(200, func() { _ = a.Write(tc.entry) }); got != 0 {
-				t.Fatalf("%.1f allocs/op for a record the SDK drops, want 0", got)
+			got := testing.AllocsPerRun(200, func() { _ = a.Write(tc.entry) })
+			if got > tc.budget {
+				t.Fatalf("%.1f allocs/op exceeds the budget of %.0f", got, tc.budget)
 			}
+			t.Logf("%.1f allocs/op (budget %.0f)", got, tc.budget)
 		})
 	}
 }

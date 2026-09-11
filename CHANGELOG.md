@@ -35,11 +35,14 @@ All notable changes to HaloLog are documented here. This project adheres to
   through `Write` and `Health` instead of panicking inside the logging call.
   Per-shape allocation budgets are measured and gated by
   `TestAdapter_AllocationBudgets` (0 allocs up to five attributes; 2 for a
-  correlated record's span context), and a severity the SDK drops pays for
-  nothing beyond the `Enabled` probe, whatever the entry's shape. `Flush` and
-  `Close` drain the provider through `ForceFlush` — `Fatal` flushes and exits
-  from inside the logging call, so a no-op flush would lose the last line a
-  program writes — but never `Shutdown` it, which stays the caller's. End-to-end
+  correlated record's span context). A severity the SDK drops skips the
+  attribute work but still pays for the span context, because `Enabled` is
+  asked under the same correlation context `Emit` uses. `Flush` and
+  `Close` drain the provider through `ForceFlush`, bounded by
+  `WithFlushTimeout` (`DefaultFlushTimeout`, 5s, otherwise) — `Fatal` flushes
+  and exits from inside the logging call, so a no-op flush would lose the last
+  line a program writes and an unbounded one would hold the process open —
+  but never `Shutdown` it, which stays the caller's. End-to-end
   tests run the real `sdk/log` pipeline and assert what an exporter receives. The adapter owns no lifecycle: flushing
   and shutdown stay with the `LoggerProvider`. Adds
   `go.opentelemetry.io/otel/log` to the `otelbridge` module only; the core

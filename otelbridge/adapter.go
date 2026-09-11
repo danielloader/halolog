@@ -45,6 +45,11 @@ import (
 // DefaultAdapterName is the adapter's registry name when WithName is not given.
 const DefaultAdapterName = "otel"
 
+// DefaultFlushTimeout bounds Flush and Close when WithFlushTimeout is not
+// given. It is finite on purpose: Fatal flushes and then exits, so an
+// exporter that never returns would hold the process open indefinitely.
+const DefaultFlushTimeout = 5 * time.Second
+
 // attrStackCap stages attributes in a stack array so building them adds no
 // allocation of its own up to this width; beyond it the slice spills to the
 // heap once. It is deliberately above log.Record's own 5-attribute inline
@@ -84,19 +89,23 @@ const (
 // Cost per emitted record, measured against a discarding logger by
 // TestAdapter_AllocationBudgets (which holds these as ceilings):
 //
-//	up to 5 attributes                 0 allocs
-//	6+ attributes (past Record inline) 1 alloc
+//	up to 5 attributes                      0 allocs
+//	6+ attributes (past Record inline)      1 alloc
 //	9+ attributes (past the staging buffer) 2 allocs
-//	correlated (Bind)                  2 allocs, for the span context
+//	correlated (Bind)                       2 allocs, for the span context
 //
-// A real SDK adds its own cost on top: these are the adapter's, not the
-// export pipeline's. A severity the SDK drops costs nothing beyond the
-// Enabled probe, whatever the entry's shape — the probe runs before any of
-// the work above.
+// A severity the SDK drops skips the attribute work entirely, but still pays
+// for the span context: Enabled has to be asked under the same correlation
+// context Emit would use, or a processor filtering on the sampled flag would
+// answer for a record that is not the one being emitted.
+//
+// A real SDK adds its own cost on top; these are the adapter's, not the
+// export pipeline's.
 type Adapter struct {
-	logger   otellog.Logger
-	provider otellog.LoggerProvider
-	name     string
+	logger       otellog.Logger
+	provider     otellog.LoggerProvider
+	name         string
+	flushTimeout time.Duration
 }
 
 // forceFlusher is the drain method a LoggerProvider may offer.
@@ -106,10 +115,11 @@ type forceFlusher interface {
 }
 
 type adapterConfig struct {
-	provider  otellog.LoggerProvider
-	name      string
-	version   string
-	schemaURL string
+	provider     otellog.LoggerProvider
+	name         string
+	version      string
+	schemaURL    string
+	flushTimeout time.Duration
 }
 
 // Option configures an Adapter.
@@ -147,11 +157,22 @@ func WithSchemaURL(url string) Option {
 	return func(c *adapterConfig) { c.schemaURL = url }
 }
 
+// WithFlushTimeout bounds how long Flush and Close wait for the provider to
+// drain, replacing DefaultFlushTimeout.
+//
+// The bound is what keeps a wedged exporter from wedging the program: Fatal
+// flushes and then exits, so an unbounded drain there is a hang with no log
+// line to explain it. A non-positive duration waits indefinitely — say so
+// explicitly if that is what you want.
+func WithFlushTimeout(d time.Duration) Option {
+	return func(c *adapterConfig) { c.flushTimeout = d }
+}
+
 // NewAdapter returns an Adapter emitting through scopeName, which should be the
 // import path of the package doing the logging (the OpenTelemetry instrumentation
 // scope convention) — not this bridge's own path.
 func NewAdapter(scopeName string, opts ...Option) *Adapter {
-	cfg := adapterConfig{name: DefaultAdapterName}
+	cfg := adapterConfig{name: DefaultAdapterName, flushTimeout: DefaultFlushTimeout}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -167,9 +188,10 @@ func NewAdapter(scopeName string, opts ...Option) *Adapter {
 		logOpts = append(logOpts, otellog.WithSchemaURL(cfg.schemaURL))
 	}
 	return &Adapter{
-		logger:   cfg.provider.Logger(scopeName, logOpts...),
-		provider: cfg.provider,
-		name:     cfg.name,
+		logger:       cfg.provider.Logger(scopeName, logOpts...),
+		provider:     cfg.provider,
+		name:         cfg.name,
+		flushTimeout: cfg.flushTimeout,
 	}
 }
 
@@ -205,12 +227,25 @@ func (a *Adapter) WriteZero(entry *types.LogEntry) error { return a.Write(entry)
 // and exits the process from inside the logging call — so a batching
 // processor's queue is the last place the most important line in the program
 // can be, and the caller never gets a chance to drain it itself.
+//
+// The wait is bounded by WithFlushTimeout (DefaultFlushTimeout otherwise) and
+// a drain that times out returns the error rather than blocking the exit.
 func (a *Adapter) Flush() error {
 	f, ok := a.provider.(forceFlusher)
 	if !ok {
 		return nil
 	}
-	return f.ForceFlush(context.Background())
+	if a.flushTimeout <= 0 {
+		return f.ForceFlush(context.Background())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), a.flushTimeout)
+	defer cancel()
+
+	// The error is returned, not swallowed, but the deadline is what matters
+	// on the Fatal path: Logger.Flush discards the error and exits, so a
+	// wedged exporter costs at most flushTimeout instead of the process.
+	return f.ForceFlush(ctx)
 }
 
 // Close drains the provider but does not shut it down. The provider belongs
@@ -243,16 +278,17 @@ func (a *Adapter) build(entry *types.LogEntry) (context.Context, otellog.Record,
 	var rec otellog.Record
 	sev := severityOf(entry.Level)
 
-	// Probe first, so a severity the SDK drops pays for nothing. The probe
-	// carries no span: the adapter has no caller context, and reconstructing
-	// one from the entry is the very work being skipped. A processor that
-	// filters on span state therefore sees severity alone here — the emitted
-	// record below still carries the full span context.
-	if !a.logger.Enabled(context.Background(), otellog.EnabledParameters{Severity: sev}) {
-		return context.Background(), rec, false
-	}
-
+	// The span context is rebuilt before the probe, not after, because Enabled
+	// and Emit must agree on which records qualify: a processor that filters
+	// on the sampled flag answers differently for a bare context than for the
+	// one this record will actually carry. Probing cheaply and emitting richly
+	// would drop records the pipeline wanted. The cost is that a dropped
+	// correlated record still pays for its context — see the budgets.
 	ctx, consumed := a.spanContext(entry)
+
+	if !a.logger.Enabled(ctx, otellog.EnabledParameters{Severity: sev}) {
+		return ctx, rec, false
+	}
 
 	// ObservedTimestamp is deliberately left unset: the SDK stamps it at Emit,
 	// which is a truer observation time than HaloLog's cached clock (up to
@@ -306,20 +342,34 @@ func (a *Adapter) spanContext(entry *types.LogEntry) (context.Context, uint8) {
 		consumed uint8
 	)
 	forEachField(entry, func(key string, f types.TypedFieldData) {
+		// Match the key before touching the value: every other field on the
+		// entry would otherwise be converted here only to be discarded.
+		var bit uint8
+		switch key {
+		case keyTraceID.Name:
+			bit = bitTraceID
+		case keySpanID.Name:
+			bit = bitSpanID
+		case keyTraceFlags.Name:
+			bit = bitTraceFlags
+		default:
+			return
+		}
+
 		hex, ok := stringOf(f)
 		if !ok {
 			return
 		}
-		switch key {
-		case keyTraceID.Name:
+		switch bit {
+		case bitTraceID:
 			if id, err := trace.TraceIDFromHex(hex); err == nil {
 				cfg.TraceID, consumed = id, consumed|bitTraceID
 			}
-		case keySpanID.Name:
+		case bitSpanID:
 			if id, err := trace.SpanIDFromHex(hex); err == nil {
 				cfg.SpanID, consumed = id, consumed|bitSpanID
 			}
-		case keyTraceFlags.Name:
+		case bitTraceFlags:
 			if v, err := strconv.ParseUint(hex, 16, 8); err == nil {
 				cfg.TraceFlags, consumed = trace.TraceFlags(v), consumed|bitTraceFlags
 			}
@@ -381,8 +431,12 @@ func (a *Adapter) attributes(dst []otellog.KeyValue, entry *types.LogEntry, cons
 	if entry.Component != "" && claimed&bitComponent == 0 {
 		dst = append(dst, otellog.String(attrComponent, entry.Component))
 	}
-	if msg := errorMessage(entry); msg != "" && claimed&bitError == 0 {
-		dst = append(dst, otellog.String(attrError, msg))
+	if claimed&bitError == 0 {
+		// Checked before deriving: errorMessage may call Error(), whose result
+		// would be thrown away when a logged field already holds the key.
+		if msg := errorMessage(entry); msg != "" {
+			dst = append(dst, otellog.String(attrError, msg))
+		}
 	}
 	// The JSON formatter suppresses the caller unless Line >= 0; match it
 	// rather than exporting a line number no source file has.
